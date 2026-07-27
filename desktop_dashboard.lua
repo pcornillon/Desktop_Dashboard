@@ -43,7 +43,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v17 (Claude app is its own subject, not a repo hint, 2026-07-27)"
+M.version = "v18 (chat apps and browsers are not repo hints, 2026-07-27)"
 
 -- ============================ CONFIG ============================
 
@@ -66,16 +66,20 @@ M.ignoreApps = {
 -- the app is a workspace of its own, not a checkout of a repo. Without this,
 -- a chat about Desktop Dashboard relabels the Desktop as Desktop_Dashboard.
 --
--- Add any app whose titles describe a subject rather than a location — a
--- browser on a repo's GitHub page is the other obvious candidate.
+-- Chat apps and browsers both title themselves by topic: a conversation name,
+-- or a page title such as "pcornillon/Desktop_Dashboard · GitHub". Neither says
+-- the Desktop *is* that repo's workspace.
 M.noRepoHintApps = {
-  ["Claude"] = true,
+  ["Claude"] = true, ["ChatGPT"] = true,
+  ["Safari"] = true, ["Google Chrome"] = true, ["Firefox"] = true,
+  ["Microsoft Edge"] = true, ["Arc"] = true, ["Brave Browser"] = true,
+  ["Chromium"] = true, ["Opera"] = true, ["Vivaldi"] = true,
 }
 
 -- Display-name overrides for the "one app on this Desktop" case, where the
 -- label would otherwise be the bare process name.
 M.appLabels = {
-  ["Claude"] = "Claude App",   -- distinct from `claude` running in a terminal
+  ["Claude"] = "Claude Chat/Cowork",   -- distinct from `claude` in a terminal
 }
 
 M.categories = {

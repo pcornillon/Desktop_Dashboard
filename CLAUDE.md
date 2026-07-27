@@ -81,17 +81,25 @@ titles (so Finder/Terminal still contribute repo hints), but excludes the titles
   repo hint only.
 - **A title names a location or a subject, and only the first is a repo hint.** A
   Terminal running `claude` in a repo puts the *working directory* in its title — that
-  really does say which repo the Desktop is for. The Claude *desktop app* puts the
-  *conversation name* in its title, which contains a repo name only because that's the
-  topic of discussion; the app is a workspace in its own right, not a checkout. Both
-  produce the same words, so rule 2 cannot tell them apart on text alone —
-  `M.noRepoHintApps` draws the line by app. Members still count toward the subject
-  (unlike `ignoreApps`); only their titles are withheld from `ctx`. Found when a Claude
-  app conversation about this repo relabeled its Desktop `Desktop_Dashboard`.
+  really does say which repo the Desktop is for. A browser puts a *page title* there
+  (`pcornillon/Desktop_Dashboard · GitHub`), and a chat app puts a *conversation name*;
+  both can contain a repo name purely as subject matter. Rule 2 cannot tell those apart
+  on text alone, so `M.noRepoHintApps` draws the line by app. Members still count toward
+  the subject (unlike `ignoreApps`); only their titles are withheld from `ctx`.
+- **Rule 2 matches a repo name anywhere in a title, including inside a filename that is
+  not in the repo.** Measured case: two windows open in TeXShop titled
+  `desktop_dashboard_17.lua` / `_18.lua` — both files sitting in `~/.Trash` — kept
+  relabeling their Desktop `Desktop_Dashboard`. Nothing in the title text distinguishes
+  "a file belonging to this repo" from "a file whose name resembles this repo", and the
+  editor was not in `docApps`, so no real path was available to check. If you tighten
+  this, do it with a path (rule 1), not by pattern-matching the title harder. Until
+  then, a mixed Desktop like that is what ⌘⌃⌥N manual naming is for.
 - **`M.appLabels` renames the single-app case.** Rule 4 returns the bare process name
   when one app owns the Desktop, which makes `Claude` ambiguous with `claude` in a
-  terminal; the override displays `Claude App`. Categories can't do this — a category
-  is only shown when it groups two or more apps.
+  terminal; the override displays `Claude Chat/Cowork`. Categories can't do this — a
+  category is only shown when it groups two or more apps. Note this applies *only* when
+  a single app is present; a Desktop that also holds an editor and Stickies resolves to
+  `Utility` by rule 4 long before `appLabels` is consulted.
 - **Re-list the repo roots on a timer.** `loadRepos()` originally ran once in `start()`,
   so a repo created after Hammerspoon loaded its config was invisible to rules 2 and 3
   until the next Reload Config — the Desktop showed `—` or a bare app name however
