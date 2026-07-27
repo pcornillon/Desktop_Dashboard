@@ -1,0 +1,14 @@
+-- Add these lines to  ~/.hammerspoon/init.lua  (create the file if it doesn't exist).
+-- They tell Hammerspoon to load Desktop Dashboard from this repo instead of from
+-- ~/.hammerspoon, so the code can live with your other projects.
+--
+-- Adjust the path below if you cloned the repo somewhere other than ~/Git_Repos.
+
+package.path = package.path .. ";" .. os.getenv("HOME") .. "/Git_Repos/Desktop_Dashboard/?.lua"
+
+local dd = require("desktop_dashboard")
+dd.start()
+
+-- Alternative to the package.path line above: symlink the file into place, e.g.
+--   ln -s ~/Git_Repos/Desktop_Dashboard/desktop_dashboard.lua ~/.hammerspoon/desktop_dashboard.lua
+-- and then just:  local dd = require("desktop_dashboard"); dd.start()

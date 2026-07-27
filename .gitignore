@@ -1,0 +1,7 @@
+# macOS
+.DS_Store
+
+# Machine-specific runtime state — lives in ~/.hammerspoon, never in the repo.
+# Listed here only as a guard in case someone copies it in by accident.
+desktop_dashboard_state.json
+desktop_dashboard_names.json
