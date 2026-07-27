@@ -68,9 +68,13 @@ embedding a username. What the repo does reveal is ordinary working-setup detail
 - **Live verification (manual, MOVING.md step 3).** This is a live-GUI tool and cannot
   be verified headless, so it remains unconfirmed. Outstanding: Accessibility enabled
   for Hammerspoon → Reload Config → Console prints
-  `desktop_dashboard v17 (Claude app is its own subject, not a repo hint, 2026-07-27) loaded`
-  → ⌘⌃⌥S labels every Desktop, the repo's own Desktop reads `Desktop_Dashboard`, and the
-  Desktop holding the Claude desktop app reads `Claude App`.
+  `desktop_dashboard v18 (chat apps and browsers are not repo hints, 2026-07-27) loaded`
+  → ⌘⌃⌥S labels every Desktop.
+
+  Partly verified live via `hs.ipc` on 2026-07-27: v18 is loaded, iMac Desktop 1 reads
+  `Claude Chat/Cowork`, and Built-in Display Desktop 10 auto-detects `Desktop_Dashboard`
+  (confirming the v16 fix). Not verified: that the panel renders correctly on screen and
+  that click-to-switch still works — those need eyes on the display.
 
 ## Bug found during migration (fixed in v16)
 
@@ -98,7 +102,51 @@ Two independent causes, both now fixed:
 Cause 1 is the one that bit; cause 2 was latent in the repo copy (whose casing is
 correct) and would have bitten on any machine whose `repoRoots` casing drifted.
 
-## Follow-on fix (v17)
+## Correction to v17, and what was really wrong (v18)
+
+v17 was built on an assumption that live inspection disproved. Enabling `hs.ipc` in
+`~/.hammerspoon/init.lua` made it possible to query the running instance, and iMac
+Desktop 1 (space 441) actually holds:
+
+| app | window title |
+|---|---|
+| TeXShop | `desktop_dashboard_17.lua` |
+| TeXShop | `desktop_dashboard_18.lua` |
+| Claude | `Claude` |
+| TextEdit | `init.lua` |
+| Finder | `Applications` |
+| Stickies | `After many many years of service, URI is…` |
+
+The Claude app titles its window plainly **`Claude`** — it never contributed a repo hint,
+so v17 suppressed something that wasn't happening. The real source is the two TeXShop
+titles: `desktop_dashboard_17.lua` normalizes to `desktop dashboard 17 lua`, which
+contains `desktop dashboard`. **Both files are in `~/.Trash`.** Rule 2 matches a repo
+name anywhere in a title and cannot distinguish a file belonging to the repo from a
+deleted file merely named like it; TeXShop is not in `docApps`, so no real path was
+available to check.
+
+That case is left unfixed on purpose — tightening it needs a path (rule 1), not more
+aggressive title matching.
+
+The v18 changes are still correct and were requested: browsers and chat apps genuinely
+do title themselves by topic, and a browser on `pcornillon/Desktop_Dashboard · GitHub`
+would have caused exactly this bug for real.
+
+### Why Desktop 1 needed a manual name
+
+Even with every hint suppressed, that Desktop resolves to `Utility`: rule 4 sees four
+distinct subjects (TeXShop, Claude, TextEdit, Stickies) and returns `M.utilityLabel`
+long before `M.appLabels` is consulted — `appLabels` only applies when a **single** app
+owns the Desktop. No detection rule could return `Claude Chat/Cowork` for a Desktop
+holding five apps.
+
+So it was set as a manual override (`manual: true`, keyed to iMac + position 1 in the
+state file), which is what ⌘⌃⌥N exists for. Verified live: Desktop 1 reads
+`Claude Chat/Cowork`. **To undo:** focus that Desktop, press ⌘⌃⌥N, submit an empty name.
+Note that while the override stands, that Desktop will keep the name even if it is
+repurposed.
+
+## Follow-on fix (v17, superseded above)
 
 With v16 detecting the repo, a second, opposite problem showed: the Desktop holding the
 **Claude desktop app** was labeled `Desktop_Dashboard`, because the app's window title

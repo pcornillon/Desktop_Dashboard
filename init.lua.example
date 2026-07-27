@@ -9,6 +9,17 @@ package.path = package.path .. ";" .. os.getenv("HOME") .. "/Git_Repos/Desktop_D
 local dd = require("desktop_dashboard")
 dd.start()
 
+-- Optional, but worth it: the command-line bridge. With these two lines you can
+-- query the RUNNING instance from a shell, which is the only way to see why a
+-- Desktop got the label it did without guessing:
+--
+--   hs -c "return dd.version"
+--   hs -c "return hs.inspect(hs.spaces.allSpaces())"
+--   hs -c "dd.saveLayout()"   then read ~/.hammerspoon/desktop_dashboard_state.json
+--
+-- require("hs.ipc")   -- put this ABOVE dd.start()
+-- _G.dd = dd
+
 -- Alternative to the package.path line above: symlink the file into place, e.g.
 --   ln -s ~/Git_Repos/Desktop_Dashboard/desktop_dashboard.lua ~/.hammerspoon/desktop_dashboard.lua
 -- and then just:  local dd = require("desktop_dashboard"); dd.start()
