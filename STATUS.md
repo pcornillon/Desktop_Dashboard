@@ -53,16 +53,24 @@ dd.start()
 Removing the stale copy without this change would have broken the load, so the two
 went together.
 
+### 4. Licensed and published
+
+MIT `LICENSE` added (copyright Peter Cornillon, 2026). Pushed public to
+<https://github.com/pcornillon/Desktop_Dashboard>, `main` tracking `origin/main`.
+
+Before publishing, the committed files were scanned for credentials and for hardcoded
+home paths: none. The Lua resolves paths through `os.getenv("HOME")` rather than
+embedding a username. What the repo does reveal is ordinary working-setup detail — the
+`CONFIG` block names the apps in use and assumes repos live under `~/Git_Repos`.
+
 ## Pending
 
 - **Live verification (manual, MOVING.md step 3).** This is a live-GUI tool and cannot
-  be verified headless. Outstanding: Accessibility enabled for Hammerspoon → Reload
-  Config → Console prints
+  be verified headless, so it remains unconfirmed. Outstanding: Accessibility enabled
+  for Hammerspoon → Reload Config → Console prints
   `desktop_dashboard v15 (auto-refresh on window changes, 2026-07-27) loaded` → ⌘⌃⌥S
   labels every Desktop. If repo detection misbehaves after the reload, the
   `Git_repos` → `Git_Repos` casing change above is the first thing to check.
-- **Remote.** Not yet created. Host and visibility are the user's call.
-- **`LICENSE`.** Not added. MIT is `MOVING.md`'s suggested default for sharing.
 
 ## Not done (deliberately)
 
