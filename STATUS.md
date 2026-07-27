@@ -68,9 +68,34 @@ embedding a username. What the repo does reveal is ordinary working-setup detail
 - **Live verification (manual, MOVING.md step 3).** This is a live-GUI tool and cannot
   be verified headless, so it remains unconfirmed. Outstanding: Accessibility enabled
   for Hammerspoon → Reload Config → Console prints
-  `desktop_dashboard v15 (auto-refresh on window changes, 2026-07-27) loaded` → ⌘⌃⌥S
-  labels every Desktop. If repo detection misbehaves after the reload, the
-  `Git_repos` → `Git_Repos` casing change above is the first thing to check.
+  `desktop_dashboard v16 (rescan repo roots; case-insensitive repo paths, 2026-07-27) loaded`
+  → ⌘⌃⌥S labels every Desktop, and this repo's own Desktop reads `Desktop_Dashboard`.
+
+## Bug found during migration (fixed in v16)
+
+Creating this repo surfaced a real defect: the Desktop running `claude` in
+`~/Git_Repos/Desktop_Dashboard` showed `—`, and with `MOVING.md` open in MacDown it
+showed the app name instead of the repo.
+
+Two independent causes, both now fixed:
+
+1. **`loadRepos()` ran exactly once, in `start()`.** Hammerspoon loaded its config at
+   15:44; the `Desktop_Dashboard` directory was created at 17:02. The repo therefore
+   never entered the `repos` list, so detection rules 2 (repo name in a window title)
+   and 3 (token overlap) could not match it no matter what the titles said — the
+   Terminal title was literally
+   `Desktop_Dashboard — … claude — 254×64`. Any repo created after launch was invisible
+   until the next Reload Config. Now `refreshRepos()` re-lists the roots on a
+   `M.repoRescanSeconds` (30 s) TTL from `scanActive()`, and ⌘⌃⌥S always re-reads.
+2. **`repoForPath()` compared paths case-sensitively.** This is why rule 1 (open
+   document inside a repo) also missed. The stale `~/.hammerspoon` copy had
+   `repoRoots = ~/Git_repos`; `hs.fs.dir` accepted it on the case-insensitive volume,
+   but the `AXDocument` path `/Users/…/Git_Repos/…` never prefix-matched. The comparison
+   is now case-insensitive, with the repo segment sliced off the original path so its
+   true casing is preserved.
+
+Cause 1 is the one that bit; cause 2 was latent in the repo copy (whose casing is
+correct) and would have bitten on any machine whose `repoRoots` casing drifted.
 
 ## Not done (deliberately)
 

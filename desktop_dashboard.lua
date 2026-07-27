@@ -43,7 +43,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v15 (auto-refresh on window changes, 2026-07-27)"
+M.version = "v16 (rescan repo roots; case-insensitive repo paths, 2026-07-27)"
 
 -- ============================ CONFIG ============================
 
@@ -108,6 +108,8 @@ M.minWidth        = 220
 M.maxWidth        = 760
 M.sectionGap      = 10
 M.refreshSeconds  = 10          -- re-read the visible Desktop(s) this often (cheap)
+M.repoRescanSeconds = 30        -- re-list repoRoots this often, so repos created
+                                -- after launch get detected without a reload
 M.scanDwell       = 0.6         -- dwell per Desktop during ⌘⌃⌥S
 M.autosaveMinutes = 4
 M.toggleHotkey    = { mods = {"cmd","ctrl","alt"}, key = "d" }
@@ -130,6 +132,7 @@ local labelCache = {}          -- spaceID -> label string
 local lastGather = {}          -- spaceID -> { {app,title,doc,win}, ... }
 local overrides  = {}          -- spaceID -> manual name
 local repos      = {}
+local reposLoadedAt = 0        -- when loadRepos() last ran (see refreshRepos)
 local refreshTimer, autosaveTimer, spaceWatcher, screenWatcher, winWatcher, debounceTimer
 local draw                     -- forward declaration
 local scanningAll = false      -- true only during a ⌘⌃⌥S walk
@@ -154,6 +157,7 @@ local function saveState(t) pcall(hs.json.write, t, stateFile, true, true) end
 
 local function loadRepos()
   repos = {}
+  reposLoadedAt = hs.timer.secondsSinceEpoch()
   for _, root in ipairs(M.repoRoots) do
     if hs.fs.attributes(root) then
       for name in hs.fs.dir(root) do
@@ -169,6 +173,18 @@ local function loadRepos()
   end
 end
 
+-- Re-scan the repo roots if the list has gone stale. Without this, loadRepos()
+-- ran once in start() and a repo CREATED AFTER Hammerspoon loaded its config
+-- stayed invisible to the title-hint and token rules until the next Reload
+-- Config — the Desktop would show "—" or the bare app name instead of the repo.
+-- Cheap: a dir listing plus a stat per entry, against the ~40ms
+-- hs.window.allWindows() that every read already pays.
+local function refreshRepos()
+  if hs.timer.secondsSinceEpoch() - reposLoadedAt >= (M.repoRescanSeconds or 30) then
+    loadRepos()
+  end
+end
+
 local function categorize(app)
   if M.categories[app] then return M.categories[app] end
   for _, r in ipairs(M.categoryPatterns) do
@@ -177,10 +193,16 @@ local function categorize(app)
   return app
 end
 
+-- Match case-insensitively: macOS volumes are normally case-insensitive, so a
+-- repoRoots entry of "~/Git_repos" happily lists "~/Git_Repos" via hs.fs.dir
+-- but would never prefix-match the real document path returned by AXDocument.
+-- The segment is sliced off the ORIGINAL path so the repo keeps its true case.
 local function repoForPath(path)
   if not path or path == "" then return nil end
+  local lpath = path:lower()
   for _, root in ipairs(M.repoRoots) do
-    if path:sub(1, #root + 1) == root .. "/" then
+    local lroot = root:lower()
+    if lpath:sub(1, #lroot + 1) == lroot .. "/" then
       local seg = path:sub(#root + 2):match("^([^/]+)/")
       if seg then return seg end
     end
@@ -299,6 +321,7 @@ end
 
 -- Read the Desktop(s) currently active on each display (one snapshot for all).
 local function scanActive()
+  refreshRepos()
   local byId = snapshot()
   for _, sid in ipairs(activeSids()) do labelSpace(byId, sid) end
   if not scanningAll then M.status = nil end   -- clear any stale scan status
@@ -489,6 +512,7 @@ end
 -- Walk every Desktop once, reading each as it becomes active.
 function M.scanAll()
   scanningAll = true
+  loadRepos()                    -- an explicit ⌘⌃⌥S always re-reads the repo list
   local start = {}
   for _, s in ipairs(hs.screen.allScreens()) do start[s] = hs.spaces.activeSpaceOnScreen(s) end
   local queue = {}
