@@ -68,8 +68,9 @@ embedding a username. What the repo does reveal is ordinary working-setup detail
 - **Live verification (manual, MOVING.md step 3).** This is a live-GUI tool and cannot
   be verified headless, so it remains unconfirmed. Outstanding: Accessibility enabled
   for Hammerspoon → Reload Config → Console prints
-  `desktop_dashboard v16 (rescan repo roots; case-insensitive repo paths, 2026-07-27) loaded`
-  → ⌘⌃⌥S labels every Desktop, and this repo's own Desktop reads `Desktop_Dashboard`.
+  `desktop_dashboard v17 (Claude app is its own subject, not a repo hint, 2026-07-27) loaded`
+  → ⌘⌃⌥S labels every Desktop, the repo's own Desktop reads `Desktop_Dashboard`, and the
+  Desktop holding the Claude desktop app reads `Claude App`.
 
 ## Bug found during migration (fixed in v16)
 
@@ -96,6 +97,19 @@ Two independent causes, both now fixed:
 
 Cause 1 is the one that bit; cause 2 was latent in the repo copy (whose casing is
 correct) and would have bitten on any machine whose `repoRoots` casing drifted.
+
+## Follow-on fix (v17)
+
+With v16 detecting the repo, a second, opposite problem showed: the Desktop holding the
+**Claude desktop app** was labeled `Desktop_Dashboard`, because the app's window title
+is a conversation name that mentioned the repo.
+
+Rule 2 treats any repo name in any title as a hint, but a title can name either a
+*location* or a *subject*, and only the first is evidence about the Desktop. A Terminal
+running `claude` in a repo names its working directory; the Claude app names what you're
+talking about. `M.noRepoHintApps` withholds an app's titles from the hint text while the
+app still counts toward the subject, and `M.appLabels` renames the single-app result so
+the Desktop reads `Claude App` rather than the bare process name `Claude`.
 
 ## Not done (deliberately)
 

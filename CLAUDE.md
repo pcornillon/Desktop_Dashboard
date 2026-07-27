@@ -49,8 +49,9 @@ The module returns a table `M` with a `CONFIG` block at the top and `M.start()` 
    - two or more apps sharing one subject → the subject (`Communication`);
    - two or more different subjects → `Utility`.
 
-`funcs` excludes Finder/Terminal (they don't decide the subject); `ctx` includes ALL
-titles (so Finder/Terminal still contribute repo hints).
+`funcs` excludes Finder/Terminal (they don't decide the subject); `ctx` includes their
+titles (so Finder/Terminal still contribute repo hints), but excludes the titles of
+`noRepoHintApps` (see below).
 
 ## Key decisions and why
 
@@ -78,6 +79,30 @@ titles (so Finder/Terminal still contribute repo hints).
   Desktop's *subject* shouldn't be "Finder", but a `claude` terminal or a Finder window
   sitting in a repo is a strong, cheap signal of *which repo* — so their titles feed the
   repo hint only.
+- **A title names a location or a subject, and only the first is a repo hint.** A
+  Terminal running `claude` in a repo puts the *working directory* in its title — that
+  really does say which repo the Desktop is for. The Claude *desktop app* puts the
+  *conversation name* in its title, which contains a repo name only because that's the
+  topic of discussion; the app is a workspace in its own right, not a checkout. Both
+  produce the same words, so rule 2 cannot tell them apart on text alone —
+  `M.noRepoHintApps` draws the line by app. Members still count toward the subject
+  (unlike `ignoreApps`); only their titles are withheld from `ctx`. Found when a Claude
+  app conversation about this repo relabeled its Desktop `Desktop_Dashboard`.
+- **`M.appLabels` renames the single-app case.** Rule 4 returns the bare process name
+  when one app owns the Desktop, which makes `Claude` ambiguous with `claude` in a
+  terminal; the override displays `Claude App`. Categories can't do this — a category
+  is only shown when it groups two or more apps.
+- **Re-list the repo roots on a timer.** `loadRepos()` originally ran once in `start()`,
+  so a repo created after Hammerspoon loaded its config was invisible to rules 2 and 3
+  until the next Reload Config — the Desktop showed `—` or a bare app name however
+  clearly its titles named the repo. `refreshRepos()` re-lists on an
+  `M.repoRescanSeconds` TTL from `scanActive()`; ⌘⌃⌥S always reloads. A dir listing plus
+  a stat per entry is negligible next to the `allWindows()` call each read already pays.
+- **Compare repo paths case-insensitively.** macOS volumes are normally
+  case-insensitive, so a `repoRoots` entry of `~/Git_repos` lists `~/Git_Repos` happily
+  via `hs.fs.dir` but never prefix-matches the real `AXDocument` path — rule 1 fails
+  silently while the repo list looks fine. Slice the repo segment off the original path
+  so its true casing survives.
 - **Single app → app name; shared subject → category.** A category should only appear
   when it's actually grouping more than one app. `Mail` alone is `Mail`; `Mail` + `Slack`
   is `Communication`.

@@ -65,6 +65,14 @@ likely change:
 - `M.docApps` — apps whose open file is read for repo detection. **Keep slow apps
   (Electron/Office/Java) out of this list** — asking them for a file path can stall.
 - `M.ignoreApps` — apps excluded from the subject decision (Finder, Terminal, …).
+- `M.noRepoHintApps` — apps whose window titles are ignored for repo detection, because
+  they name a *subject* rather than a *location*. The Claude desktop app is the default
+  entry: its title is a conversation name, so a chat about a repo would otherwise
+  relabel the Desktop as that repo. A browser is the other natural candidate.
+- `M.appLabels` — display-name overrides for a Desktop holding a single app
+  (`Claude` → `Claude App`).
+- `M.repoRescanSeconds` — how often the repo roots are re-listed, so a repo created
+  after Hammerspoon launched is detected without a Reload Config.
 - `M.corner`, `M.fontSize`, `M.minWidth`/`M.maxWidth` — appearance.
 - `M.showLegend`, `M.legendLines` — the command legend at the bottom.
 

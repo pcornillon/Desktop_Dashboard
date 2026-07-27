@@ -43,7 +43,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v16 (rescan repo roots; case-insensitive repo paths, 2026-07-27)"
+M.version = "v17 (Claude app is its own subject, not a repo hint, 2026-07-27)"
 
 -- ============================ CONFIG ============================
 
@@ -54,6 +54,28 @@ M.repoRoots = {
 
 M.ignoreApps = {
   ["Finder"] = true, ["Terminal"] = true, ["iTerm2"] = true, ["Hammerspoon"] = true,
+}
+
+-- Apps whose window titles must NOT feed the repo hint, though the app itself
+-- still counts toward the Desktop's subject.
+--
+-- A Terminal running `claude` in a repo puts the WORKING DIRECTORY in its title
+-- — a real statement about which repo this Desktop is for. The Claude desktop
+-- app puts the CONVERSATION NAME in its title, which may contain a repo name
+-- merely because that's what you're discussing. Same words, different meaning:
+-- the app is a workspace of its own, not a checkout of a repo. Without this,
+-- a chat about Desktop Dashboard relabels the Desktop as Desktop_Dashboard.
+--
+-- Add any app whose titles describe a subject rather than a location — a
+-- browser on a repo's GitHub page is the other obvious candidate.
+M.noRepoHintApps = {
+  ["Claude"] = true,
+}
+
+-- Display-name overrides for the "one app on this Desktop" case, where the
+-- label would otherwise be the bare process name.
+M.appLabels = {
+  ["Claude"] = "Claude App",   -- distinct from `claude` running in a terminal
 }
 
 M.categories = {
@@ -247,7 +269,9 @@ local function detectLabel(funcs, ctx)
     if not apps[w.app] then apps[w.app] = true; appOrder[#appOrder + 1] = w.app end
   end
   if #catOrder >= (M.utilityMinSubjects or 2) then return M.utilityLabel or "Utility" end
-  if #appOrder == 1 then return appOrder[1] end   -- single app → its own name
+  if #appOrder == 1 then                          -- single app → its own name
+    return M.appLabels[appOrder[1]] or appOrder[1]
+  end
   return catOrder[1] or "?"                        -- several apps, one subject
 end
 
@@ -300,7 +324,9 @@ local function readSpaceFrom(byId, sid)
         local app = appObj and appObj:name() or ""
         if app ~= "" then
           local title = w:title() or ""
-          ctx[#ctx + 1] = title
+          -- Finder/Terminal titles still feed the repo hint (they name a
+          -- location); noRepoHintApps titles do not (they name a subject).
+          if not M.noRepoHintApps[app] then ctx[#ctx + 1] = title end
           if not M.ignoreApps[app] then
             ctx[#ctx + 1] = app
             funcs[#funcs + 1] = { win = w, app = app, title = title,
