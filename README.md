@@ -119,6 +119,7 @@ restarting Hammerspoon to load the config, works from a shell.
 | ⌘⌃⌥ N | Name the current Desktop yourself |
 | ⌘⌃⌥ R | Restore the saved window layout (move/open windows to match) |
 | ⌘⌃⌥ S | Visit every Desktop once and label the ones you haven't named |
+| ⌘⌃⌥ M | Cycle what the panel lists: Desktops / claude sessions / both |
 | Drag the panel | Move it anywhere; the position is remembered per display |
 
 **A name you type yourself sticks.** It beats whatever the dashboard would have worked

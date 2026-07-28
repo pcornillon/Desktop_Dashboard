@@ -37,6 +37,8 @@
   • ⌘⌃⌥ N — name the current Desktop (blank clears it).
   • ⌘⌃⌥ R — restore the saved window layout (move/open windows).
   • ⌘⌃⌥ S — walk every Desktop once and label them all.
+  • ⌘⌃⌥ M — cycle what the panel lists: Desktops / claude sessions / both.
+  • Drag the panel to move it; its position is remembered per display.
 
   Names + window layout auto-save (periodically and at logout/shutdown) to
   ~/.hammerspoon/desktop_dashboard_state.json.
@@ -215,8 +217,11 @@ M.scanHotkey      = { mods = {"cmd","ctrl","alt"}, key = "s" }
 -- Command legend shown at the bottom of the panel. Set showLegend=false to
 -- hide it; edit legendLines if you remap the hotkeys above.
 M.showLegend  = true
+-- Split across two lines on purpose: the legend is the widest thing in the
+-- panel in Desktops mode, so appending to one line widens the whole panel.
 M.legendLines = {
-  "⌘⌃⌥  S scan · D hide · N name · R restore",
+  "⌘⌃⌥  S scan · D hide · N name",
+  "     R restore · M mode",
   "click a line to switch Desktops",
 }
 
