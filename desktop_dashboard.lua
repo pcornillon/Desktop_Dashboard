@@ -43,7 +43,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v24 (red dot when claude wants you, via hooks, 2026-07-28)"
+M.version = "v25 (saveLayout no longer blanks unvisited Desktops, 2026-07-28)"
 
 -- ============================ CONFIG ============================
 
@@ -888,6 +888,12 @@ end
 
 function M.saveLayout()
   if next(lastGather) == nil then return end
+  -- Previously saved layout. We only hold window lists for Desktops read since
+  -- the last reload (macOS won't let us read a Space we aren't viewing), and
+  -- this rewrites every Desktop — so without carrying the old lists forward,
+  -- each autosave blanked every Desktop not visited this session. Measured:
+  -- 6 of 12 Desktops had been emptied that way.
+  local prev = loadState()
   local state = { savedAt = os.time(), screens = {} }
   for _, s in ipairs(hs.screen.allScreens()) do
     local key    = s:getUUID() or s:name() or "screen"
@@ -895,8 +901,15 @@ function M.saveLayout()
     local desktops = {}
     for i, sid in ipairs(spaces) do
       local windows = {}
-      for _, w in ipairs(lastGather[sid] or {}) do
-        windows[#windows + 1] = { app = w.app, doc = w.doc or "", title = w.title or "" }
+      local gathered = lastGather[sid]
+      if gathered then
+        for _, w in ipairs(gathered) do
+          windows[#windows + 1] = { app = w.app, doc = w.doc or "", title = w.title or "" }
+        end
+      else
+        local pscr = prev and prev.screens and prev.screens[key]
+        local pd   = pscr and pscr.desktops and pscr.desktops[i]
+        if pd and type(pd.windows) == "table" then windows = pd.windows end
       end
       desktops[i] = {
         index = i, name = overrides[sid] or labelCache[sid] or "",
