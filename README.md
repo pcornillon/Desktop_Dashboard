@@ -157,6 +157,10 @@ task summary after the project name is what tells apart **two sessions in the sa
 which the Desktop view cannot do at all. Click a line to bring that session's window
 forward; macOS follows it to whatever Desktop it lives on.
 
+A green dot here clears as soon as you **look at that session's window** — by clicking its
+line, switching to the window yourself, or just typing in it. Whichever way you get there
+counts as having seen it.
+
 Same dots, with one difference worth knowing: yellow and green are **per session**, since
 each is read from that window's own title. Red is **per repo** — the hooks record a
 session id and a working directory, and nothing joins a hook file to a specific terminal

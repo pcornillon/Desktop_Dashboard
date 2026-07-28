@@ -159,6 +159,14 @@ claude session (terminals), and everything else contributes normally.
   flagged, or every login would show a wall of green. Re-prompting clears the flag.
   Acknowledging by pressing return in the claude window is **not** possible: an empty
   return does not change the terminal title, so there is nothing to observe.
+- **Sessions mode acknowledges by focus, not by Space.** Visiting a Desktop is meaningless
+  when every session shares one, so `acknowledgeFrontSession` clears the flag for whichever
+  Terminal window is frontmost. Two guards matter: Terminal reports a `front window` even
+  when Terminal is not the active application, so without the frontmost-app check a session
+  would be marked seen while you worked in something else; and the id must match, so being
+  in a different terminal window does not clear it. Reported symptom that led to this: the
+  green dot survived both visiting the window and typing into it, because clicking the
+  dashboard line was the only path that cleared it.
 - **`acknowledgeSids` takes Space ids instead of looking them up.** `scanActive` has
   already paid for `activeSids()`, and `hs.spaces` calls are slow enough that repeating
   them on the dot's 3 s timer was a measurable cost — an early version called them from

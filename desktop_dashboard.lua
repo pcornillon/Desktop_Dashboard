@@ -45,7 +45,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v27 (terminals mode: one line per claude session, 2026-07-28)"
+M.version = "v28 (green clears when you look at the session, 2026-07-28)"
 
 -- ============================ CONFIG ============================
 
@@ -308,6 +308,11 @@ local CLAUDE_TITLE_SCRIPT = [[
 if application "Terminal" is running then
   tell application "Terminal"
     set out to ""
+    -- Which window is frontmost, so a session you are actually looking at can
+    -- be marked as seen. `front window` raises when there are none.
+    try
+      set out to "FRONT|" & ((id of front window) as text) & linefeed
+    end try
     repeat with w in windows
       set out to out & ((id of w) as text) & "|" & (name of w) & linefeed
     end repeat
@@ -337,8 +342,10 @@ end
 -- stable for the life of the window and unique even when two windows sit in the
 -- same directory, which a repo name cannot distinguish.
 local function parseClaudeTitles(text)
-  local byRepo, sessions = {}, {}
+  local byRepo, sessions, frontId = {}, {}, nil
   for line in tostring(text or ""):gmatch("[^\r\n]+") do
+    local fid = line:match("^FRONT|(%d+)$")
+    if fid then frontId = tonumber(fid) end
     local wid, title = line:match("^(%d+)|(.*)$")
     if not title then title = line end            -- tolerate an id-less read
     -- Terminal builds its title from parts: cwd — <spinner + task> — process — WxH
@@ -366,7 +373,24 @@ local function parseClaudeTitles(text)
   -- Terminal ids ascend with creation order, so ordering is stable across polls
   -- and T1/T2/T3 keep meaning without anyone registering anything.
   table.sort(sessions, function(a, b) return (a.wid or 0) < (b.wid or 0) end)
-  return byRepo, sessions
+  return byRepo, sessions, frontId
+end
+
+-- Sessions mode's equivalent of visiting a Desktop: if you are actually looking
+-- at a session's window, its finished-and-unseen flag is cleared. Clicking the
+-- dashboard line used to be the only way, so going to the window directly — or
+-- typing into it — left the dot stuck green.
+--
+-- Terminal always reports a `front window` even when Terminal isn't the active
+-- app, so the frontmost-application check matters: without it a session would be
+-- marked seen while you were working in something else entirely.
+local function acknowledgeFrontSession(frontId)
+  if not (frontId and M.showClaudeDot) then return end
+  local ok, app = pcall(hs.application.frontmostApplication)
+  if not (ok and app) then return end
+  local name = app:name()
+  if not (name and (M.claudeOnlyHintApps[name] or name == "Terminal")) then return end
+  sessionDone[frontId] = nil
 end
 
 -- One small JSON file per live session, written by the Claude Code hooks. Local
@@ -479,10 +503,12 @@ local function refreshClaudeStates()
   local ok, t = pcall(hs.task.new, "/usr/bin/osascript", function(_, stdout, _)
     claudeTask = nil
     local before = dotKey()
-    claudeStates, sessions = parseClaudeTitles(stdout)
+    local frontId
+    claudeStates, sessions, frontId = parseClaudeTitles(stdout)
     claudeHooks  = readHookStates()
     noteTransitions(claudeStates)
     noteSessionTransitions(sessions)
+    acknowledgeFrontSession(frontId)   -- the window you're looking at is "seen"
     -- Acknowledgement is left to scanActive / the space watcher, which already
     -- know which Spaces are active; asking hs.spaces again here would be slow.
     -- Redraw only when a dot actually changed. draw() tears down and rebuilds
