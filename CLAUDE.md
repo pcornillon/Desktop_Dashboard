@@ -111,6 +111,23 @@ titles (so Finder/Terminal still contribute repo hints), but excludes the titles
   via `hs.fs.dir` but never prefix-matches the real `AXDocument` path — rule 1 fails
   silently while the repo list looks fine. Slice the repo segment off the original path
   so its true casing survives.
+- **The claude dot has two colors because the signal has two states.** Claude Code puts
+  an animated Braille spinner (U+2800–U+28FF) in the terminal title while computing and
+  `✳` (U+2733) when not. Measured 2026-07-28 over ~750 one-second samples across three
+  live sessions, including a deliberately blocked one: a session **waiting on a user
+  question shows the same `✳` as a finished one**. The title encodes whether work is
+  happening, never why it stopped, so "needs you" is not derivable and there is no red
+  dot. Do not add one by guessing — if a marker appears in a future Claude Code release,
+  verify it the same way before wiring it to `M.claudeDotColors`.
+- **Read the dot's state from Terminal's AppleScript, not Accessibility.** Terminal
+  reports titles for windows on ALL Spaces, so the dot stays correct for Desktops you are
+  not viewing — the one place this tool escapes the "only the active Space is readable"
+  constraint. Matching the title's cwd component against the Desktop's repo label avoids
+  needing any window-to-Space mapping.
+- **That AppleScript call must stay asynchronous.** It runs through `hs.task`. Measured:
+  the same query issued synchronously blocked long enough to time out Hammerspoon's own
+  IPC — precisely the class of stall that `docApps` and the single-snapshot rule exist to
+  prevent. Redraw only when a dot actually changed; `draw()` rebuilds every canvas.
 - **Single app → app name; shared subject → category.** A category should only appear
   when it's actually grouping more than one app. `Mail` alone is `Mail`; `Mail` + `Slack`
   is `Communication`.

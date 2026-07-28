@@ -74,8 +74,34 @@ likely change:
   before this is consulted; use ⌘⌃⌥N to name those.
 - `M.repoRescanSeconds` — how often the repo roots are re-listed, so a repo created
   after Hammerspoon launched is detected without a Reload Config.
+- `M.showClaudeDot`, `M.claudeDotChar`, `M.claudeDotColors`, `M.claudeDotSeconds` — the
+  claude session dot (below).
 - `M.corner`, `M.fontSize`, `M.minWidth`/`M.maxWidth` — appearance.
 - `M.showLegend`, `M.legendLines` — the command legend at the bottom.
+
+## The claude session dot
+
+A Desktop labeled with a repo that also has a `claude` session running in that repo gets
+a colored dot between the Desktop number and the arrow:
+
+```
+▸ Desktop 10 ● → Desktop_Dashboard      yellow — that session is working
+   Desktop 4 ● → opendap-registry        green — that session is not working
+```
+
+**There are only two colors, and that is a limit of the signal, not a shortcut.** Claude
+Code stamps the terminal title with an animated Braille spinner while it computes and
+with `✳` when it does not. Measured over ~750 one-second samples: a session *blocked on a
+question* shows the same `✳` as one that has *finished*. The title says whether work is
+happening, never why it stopped, so "waiting for you" cannot be distinguished from "done"
+and there is no red dot. If that ever changes, `M.claudeDotColors` is where it goes.
+
+Titles are read from Terminal via AppleScript rather than Accessibility, which is why the
+dot stays live for Desktops you are **not** currently viewing — Accessibility can only see
+the Space you are on. The read is asynchronous (`hs.task`), so a slow or wedged Terminal
+cannot stall the panel.
+
+Set `M.showClaudeDot = false` to turn the whole thing off.
 
 ## Sharing across machines / with colleagues
 

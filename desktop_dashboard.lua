@@ -43,7 +43,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v18 (chat apps and browsers are not repo hints, 2026-07-27)"
+M.version = "v19 (claude session dot on repo Desktops, 2026-07-28)"
 
 -- ============================ CONFIG ============================
 
@@ -80,6 +80,25 @@ M.noRepoHintApps = {
 -- label would otherwise be the bare process name.
 M.appLabels = {
   ["Claude"] = "Claude Chat/Cowork",   -- distinct from `claude` in a terminal
+}
+
+-- Colored dot next to a repo Desktop that has a `claude` session running,
+-- showing whether that session is computing.
+--
+-- Claude Code stamps the terminal title with an animated Braille spinner while
+-- it is working, and with U+2733 (✳) when it is not. Measured 2026-07-28 over
+-- ~750 one-second samples. There are only those two states: a session blocked
+-- on a question shows the SAME ✳ as one that has finished, so "waiting for you"
+-- cannot be told from "done" and there is deliberately no red. See CLAUDE.md.
+--
+-- Titles come from Terminal via AppleScript, not Accessibility, so this works
+-- for Desktops you are not currently viewing.
+M.showClaudeDot    = true
+M.claudeDotChar    = "●"
+M.claudeDotSeconds = 5           -- min gap between title reads (async, never blocks)
+M.claudeDotColors  = {
+  working = { red = 1.00, green = 0.78, blue = 0.20, alpha = 1 },   -- yellow
+  idle    = { red = 0.30, green = 0.85, blue = 0.40, alpha = 1 },   -- green
 }
 
 M.categories = {
@@ -159,6 +178,8 @@ local lastGather = {}          -- spaceID -> { {app,title,doc,win}, ... }
 local overrides  = {}          -- spaceID -> manual name
 local repos      = {}
 local reposLoadedAt = 0        -- when loadRepos() last ran (see refreshRepos)
+local claudeStates = {}        -- repo name (lowercased) -> "working" | "idle"
+local claudeStatesAt, claudeTask = 0, nil
 local refreshTimer, autosaveTimer, spaceWatcher, screenWatcher, winWatcher, debounceTimer
 local draw                     -- forward declaration
 local scanningAll = false      -- true only during a ⌘⌃⌥S walk
@@ -209,6 +230,81 @@ local function refreshRepos()
   if hs.timer.secondsSinceEpoch() - reposLoadedAt >= (M.repoRescanSeconds or 30) then
     loadRepos()
   end
+end
+
+-- Ask Terminal for every window's title. Terminal's own scripting dictionary
+-- reports windows on ALL Spaces, which Accessibility cannot do — that is the
+-- whole reason the dot can stay live for a Desktop you are not looking at.
+-- Guarded by `is running` so it never launches Terminal just to ask.
+local CLAUDE_TITLE_SCRIPT = [[
+if application "Terminal" is running then
+  tell application "Terminal"
+    set out to ""
+    repeat with w in windows
+      set out to out & (name of w) & linefeed
+    end repeat
+    return out
+  end tell
+else
+  return ""
+end if
+]]
+
+local function firstCodepoint(s)
+  if not (utf8 and utf8.codepoint) or not s or s == "" then return nil end
+  local ok, cp = pcall(utf8.codepoint, s, 1)
+  return ok and cp or nil
+end
+
+-- A Terminal title looks like:
+--   "<cwd basename> — <glyph> <task summary> — caffeinate ◂ claude — 254×64"
+-- The trailing process component varies with whatever child is running
+-- (caffeinate, security, …), so match "claude" anywhere rather than exactly.
+local function parseClaudeTitles(text)
+  local st = {}
+  for line in tostring(text or ""):gmatch("[^\r\n]+") do
+    if line:find("claude", 1, true) then
+      local cwd, rest = line:match("^%s*(.-) — (.*)$")
+      if cwd and cwd ~= "" and rest then
+        local glyph = rest:match("^(.-)%s") or ""
+        local cp = firstCodepoint(glyph)
+        -- Braille block: the spinner Claude Code animates while computing.
+        local state = (cp and cp >= 0x2800 and cp <= 0x28FF) and "working" or "idle"
+        local key = cwd:lower()
+        if st[key] ~= "working" then st[key] = state end   -- any busy session wins
+      end
+    end
+  end
+  return st
+end
+
+local function statesKey(t)
+  local keys = {}
+  for k, v in pairs(t or {}) do keys[#keys + 1] = k .. "=" .. v end
+  table.sort(keys)
+  return table.concat(keys, ",")
+end
+
+-- Refresh asynchronously via hs.task: an Apple Event to a wedged Terminal must
+-- never stall Hammerspoon the way the old per-window AX reads did. Measured:
+-- the same call made synchronously from the console blocked long enough to
+-- time out Hammerspoon's own IPC.
+local function refreshClaudeStates()
+  if not M.showClaudeDot then claudeStates = {}; return end
+  if claudeTask then return end                     -- one request in flight
+  local now = hs.timer.secondsSinceEpoch()
+  if now - claudeStatesAt < (M.claudeDotSeconds or 5) then return end
+  claudeStatesAt = now
+  local ok, t = pcall(hs.task.new, "/usr/bin/osascript", function(_, stdout, _)
+    claudeTask = nil
+    local fresh = parseClaudeTitles(stdout)
+    -- Redraw only when a dot actually changed. draw() tears down and rebuilds
+    -- every canvas, so repainting on an unchanged result is pure churn.
+    local changed = statesKey(fresh) ~= statesKey(claudeStates)
+    claudeStates = fresh
+    if changed then pcall(draw) end
+  end, { "-e", CLAUDE_TITLE_SCRIPT })
+  if ok and t then claudeTask = t; t:start() end
 end
 
 local function categorize(app)
@@ -352,6 +448,7 @@ end
 -- Read the Desktop(s) currently active on each display (one snapshot for all).
 local function scanActive()
   refreshRepos()
+  refreshClaudeStates()
   local byId = snapshot()
   for _, sid in ipairs(activeSids()) do labelSpace(byId, sid) end
   if not scanningAll then M.status = nil end   -- clear any stale scan status
@@ -370,15 +467,35 @@ end
 
 -- ---- drawing (cheap; uses cache only) ------------------------------------
 
+-- The dot is shown only for a Desktop whose label IS a repo name and which has
+-- a claude session in that repo — matching the Terminal title's cwd component
+-- against the label, which needs no window-to-Space mapping.
+local function claudeStateFor(label)
+  if not M.showClaudeDot then return nil end
+  local key = tostring(label or ""):lower()
+  if key == "" then return nil end
+  local state = claudeStates[key]
+  if not state then return nil end
+  for _, r in ipairs(repos) do
+    if r.name:lower() == key then return state end
+  end
+  return nil
+end
+
 local function screenEntries(screen)
   local spaces = hs.spaces.spacesForScreen(screen) or {}
   local active = hs.spaces.activeSpaceOnScreen(screen)
   local entries = {}
   for i, sid in ipairs(spaces) do
     local label = overrides[sid] or labelCache[sid] or "…"
+    local state = claudeStateFor(label)
+    -- Desktops with no session keep a blank slot so the arrows stay aligned.
+    local dot    = state and (M.claudeDotChar or "●") or " "
+    local prefix = string.format("%sDesktop %d ", (sid == active) and "▸ " or "   ", i)
+    local suffix = string.format(" → %s", label)
     entries[#entries + 1] = {
-      sid = sid,
-      text = string.format("%sDesktop %d → %s", (sid == active) and "▸ " or "   ", i, label),
+      sid = sid, state = state, dot = dot, prefix = prefix, suffix = suffix,
+      text = prefix .. dot .. suffix,        -- plain form, used for sizing
     }
   end
   return entries
@@ -453,8 +570,24 @@ draw = function()
         cy = cy + lineH
       end
       for _, e in ipairs(blk.entries) do
+        -- Colour only the dot. hs.styledtext keeps this one text element, so
+        -- the click target is unchanged and no glyph positions are computed.
+        local body = e.text
+        if e.state then
+          local font  = { name = "Menlo", size = M.fontSize }
+          local plain = { font = font, color = { white = 1, alpha = 1 } }
+          local hot   = { font = font,
+                          color = (M.claudeDotColors or {})[e.state]
+                                  or { white = 1, alpha = 1 } }
+          local ok, styled = pcall(function()
+            return hs.styledtext.new(e.prefix, plain)
+                .. hs.styledtext.new(e.dot, hot)
+                .. hs.styledtext.new(e.suffix, plain)
+          end)
+          if ok and styled then body = styled end
+        end
         cv:appendElements({
-          type = "text", text = e.text,
+          type = "text", text = body,
           textFont = "Menlo", textSize = M.fontSize,
           textColor = { white = 1, alpha = 1 },
           frame = { x = pad, y = cy, w = panelW - pad * 2, h = lineH },
