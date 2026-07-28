@@ -43,7 +43,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v20 (dot clears when acknowledged; 3s refresh, 2026-07-28)"
+M.version = "v21 (Finder never hints; terminals hint only when running claude, 2026-07-28)"
 
 -- ============================ CONFIG ============================
 
@@ -69,12 +69,26 @@ M.ignoreApps = {
 -- Chat apps and browsers both title themselves by topic: a conversation name,
 -- or a page title such as "pcornillon/Desktop_Dashboard · GitHub". Neither says
 -- the Desktop *is* that repo's workspace.
+-- Finder is here because a Finder window's title is the folder you happen to
+-- be BROWSING. Parking Finder in a repo to copy one file out of it should not
+-- rename the Desktop after that repo, and in practice it did.
 M.noRepoHintApps = {
-  ["Claude"] = true, ["ChatGPT"] = true,
+  ["Claude"] = true, ["ChatGPT"] = true, ["Finder"] = true,
   ["Safari"] = true, ["Google Chrome"] = true, ["Firefox"] = true,
   ["Microsoft Edge"] = true, ["Arc"] = true, ["Brave Browser"] = true,
   ["Chromium"] = true, ["Opera"] = true, ["Vivaldi"] = true,
 }
+
+-- Terminals are the in-between case. A shell sitting in a repo is weak
+-- evidence — you cd through directories all day — but a terminal running
+-- `claude` in a repo is the strongest signal there is, because that is a
+-- session someone is actually working in. So a terminal's title counts as a
+-- repo hint ONLY when it looks like a claude session.
+M.claudeOnlyHintApps = {
+  ["Terminal"] = true, ["iTerm2"] = true, ["Ghostty"] = true,
+  ["Alacritty"] = true, ["kitty"] = true, ["WezTerm"] = true,
+}
+M.claudeTitleMarker = "claude"     -- lowercased substring that marks a session
 
 -- Display-name overrides for the "one app on this Desktop" case, where the
 -- label would otherwise be the bare process name.
@@ -474,9 +488,16 @@ local function readSpaceFrom(byId, sid)
         local app = appObj and appObj:name() or ""
         if app ~= "" then
           local title = w:title() or ""
-          -- Finder/Terminal titles still feed the repo hint (they name a
-          -- location); noRepoHintApps titles do not (they name a subject).
-          if not M.noRepoHintApps[app] then ctx[#ctx + 1] = title end
+          -- Decide whether this window's title may suggest a repo. Three cases:
+          -- never (browsers, chat apps, Finder), only-if-claude (terminals),
+          -- and everything else, which contributes normally.
+          local hint = true
+          if M.noRepoHintApps[app] then
+            hint = false
+          elseif M.claudeOnlyHintApps[app] then
+            hint = title:lower():find(M.claudeTitleMarker or "claude", 1, true) ~= nil
+          end
+          if hint then ctx[#ctx + 1] = title end
           if not M.ignoreApps[app] then
             ctx[#ctx + 1] = app
             funcs[#funcs + 1] = { win = w, app = app, title = title,

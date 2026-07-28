@@ -49,9 +49,10 @@ The module returns a table `M` with a `CONFIG` block at the top and `M.start()` 
    - two or more apps sharing one subject → the subject (`Communication`);
    - two or more different subjects → `Utility`.
 
-`funcs` excludes Finder/Terminal (they don't decide the subject); `ctx` includes their
-titles (so Finder/Terminal still contribute repo hints), but excludes the titles of
-`noRepoHintApps` (see below).
+`funcs` excludes Finder/Terminal (they don't decide the subject). `ctx` collects titles
+that may suggest a repo, in three tiers: `noRepoHintApps` never contribute (browsers,
+chat apps, Finder), `claudeOnlyHintApps` contribute only when the title looks like a
+claude session (terminals), and everything else contributes normally.
 
 ## Key decisions and why
 
@@ -75,10 +76,18 @@ titles (so Finder/Terminal still contribute repo hints), but excludes the titles
   apps (Slack, OneNote, Teams, MATLAB, …) can stall for minutes. The `docApps` allowlist
   restricts that slow call to real editors (MacDown, VS Code, CLion, Preview, …).
   Everything else is labeled by name only. Do not add slow apps to `docApps`.
-- **Ignore Finder/Terminal for the subject, but use their titles as repo hints.** A
-  Desktop's *subject* shouldn't be "Finder", but a `claude` terminal or a Finder window
-  sitting in a repo is a strong, cheap signal of *which repo* — so their titles feed the
-  repo hint only.
+- **Ignore Finder/Terminal for the subject.** A Desktop's *subject* shouldn't be
+  "Finder" or "Terminal", so neither appears in `funcs`.
+- **Finder no longer contributes a repo hint either; a terminal does only when it is
+  running claude.** This reverses the original rule, which fed both their titles to the
+  hint on the theory that a window "sitting in a repo" names which repo the Desktop is
+  for. In practice it named the wrong one: a Finder window is the folder you happen to be
+  *browsing*, and a shell is wherever you last `cd`'d. Observed 2026-07-28 — a Desktop
+  holding MATLAB, some `-zsh` windows and one Finder window parked in `Desktop_Dashboard`
+  was labeled `Desktop_Dashboard`, while the actual work on it was MATLAB. A terminal
+  running `claude` is different in kind: that is a session someone is working in, and it
+  stays the strongest signal available. Hence `M.claudeOnlyHintApps` +
+  `M.claudeTitleMarker`, checked against the window title.
 - **A title names a location or a subject, and only the first is a repo hint.** A
   Terminal running `claude` in a repo puts the *working directory* in its title — that
   really does say which repo the Desktop is for. A browser puts a *page title* there

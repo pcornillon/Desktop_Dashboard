@@ -65,10 +65,14 @@ likely change:
 - `M.docApps` — apps whose open file is read for repo detection. **Keep slow apps
   (Electron/Office/Java) out of this list** — asking them for a file path can stall.
 - `M.ignoreApps` — apps excluded from the subject decision (Finder, Terminal, …).
-- `M.noRepoHintApps` — apps whose window titles are ignored for repo detection, because
-  they name a *subject* rather than a *location*: browsers (a page title such as
-  `pcornillon/Desktop_Dashboard · GitHub`) and chat apps (Claude, ChatGPT). They still
-  count toward the Desktop's subject — only their titles are withheld.
+- `M.noRepoHintApps` — apps whose window titles are ignored for repo detection: browsers
+  (a page title such as `pcornillon/Desktop_Dashboard · GitHub`), chat apps (Claude,
+  ChatGPT), and **Finder** (its title is whatever folder you're browsing, which is not
+  the same as what the Desktop is for). They still count toward the Desktop's subject —
+  only their titles are withheld.
+- `M.claudeOnlyHintApps` / `M.claudeTitleMarker` — terminals, whose titles count as a
+  repo hint **only when running claude**. A shell sitting in a repo is weak evidence; a
+  `claude` session in one is the strongest signal there is.
 - `M.appLabels` — display-name overrides for a Desktop holding a **single** app
   (`Claude` → `Claude Chat/Cowork`). A Desktop with several apps is decided by subject
   before this is consulted; use ⌘⌃⌥N to name those.
