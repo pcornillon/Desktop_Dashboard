@@ -43,7 +43,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v25 (saveLayout no longer blanks unvisited Desktops, 2026-07-28)"
+M.version = "v26 (drag the panel to reposition it, 2026-07-28)"
 
 -- ============================ CONFIG ============================
 
@@ -174,6 +174,13 @@ M.categoryPatterns = {
   { pat = "PyCharm", cat = "PyCharm" },
 }
 
+-- Drag the panel with the mouse. A position you drag to is remembered per
+-- display and survives a reload; M.resetPanelPosition() puts it back in the
+-- corner. Set false to pin the panel and disable all mouse-drag handling.
+M.draggable       = true
+M.dragThreshold   = 3           -- px of movement before a press counts as a drag
+                                -- rather than a click on a Desktop line
+
 M.corner          = "topleft"
 M.margin          = 14
 M.fontSize        = 13
@@ -201,7 +208,10 @@ M.legendLines = {
 
 -- ===============================================================
 
-local canvases   = {}
+local canvases   = {}          -- { { cv = canvas, uuid = screenUUID }, ... }
+local panelPos   = {}          -- screen UUID -> { x =, y = } once dragged
+local drag       = nil         -- in-flight drag session, nil when idle
+local dragTap, dragWatchdog
 local labelCache = {}          -- spaceID -> label string
 local lastGather = {}          -- spaceID -> { {app,title,doc,win}, ... }
 local overrides  = {}          -- spaceID -> manual name
@@ -654,15 +664,99 @@ local function screenEntries(screen)
   return entries
 end
 
-local function onMouse(_, message, elementId)
-  if message == "mouseUp" and type(elementId) == "string" then
-    local sid = elementId:match("^go:(%-?%d+)$")
-    if sid then pcall(hs.spaces.gotoSpace, tonumber(sid)) end
+-- ---- dragging the panel ---------------------------------------------------
+--
+-- A press on the panel starts a session; an hs.eventtap follows the mouse until
+-- release. The tap is what makes this reliable — canvas mouse events only fire
+-- while the pointer is over the canvas, so a quick drag would otherwise lose
+-- the pointer and strand the session. It never consumes events (always returns
+-- false), so it cannot swallow input belonging to other apps.
+
+local function endDrag(commit)
+  if dragTap      then dragTap:stop();      dragTap = nil end
+  if dragWatchdog then dragWatchdog:stop(); dragWatchdog = nil end
+  local d = drag
+  drag = nil
+  if not d then return end
+  if d.moved then
+    pcall(M.saveLayout)                  -- remember where it was put
+  elseif commit and d.sid then
+    pcall(hs.spaces.gotoSpace, d.sid)    -- never moved: it was a click
   end
 end
 
+-- Move the panel so it follows an absolute mouse position. Split out from the
+-- event tap so it can be exercised with injected coordinates instead of by
+-- synthesising real mouse events, which would seize the user's pointer.
+local function dragMoveTo(px, py)
+  local d = drag
+  if not d then return false end
+  local dx, dy = px - d.mouseX, py - d.mouseY
+  -- Below the threshold this is still a click on a Desktop line, not a drag.
+  if not d.moved and (math.abs(dx) + math.abs(dy)) < (M.dragThreshold or 3) then
+    return false
+  end
+  d.moved = true
+  local nx, ny = d.originX + dx, d.originY + dy
+  pcall(function() d.cv:topLeft({ x = nx, y = ny }) end)
+  if d.uuid then panelPos[d.uuid] = { x = nx, y = ny } end
+  return true
+end
+
+local function startDrag(cv, uuid, sid)
+  if not (M.draggable and cv) then return end
+  endDrag(false)                         -- never stack sessions
+  local okTL, tl = pcall(function() return cv:topLeft() end)
+  if not (okTL and tl) then return end
+  local m = hs.mouse.absolutePosition()
+  drag = { cv = cv, uuid = uuid, sid = sid, moved = false,
+           originX = tl.x, originY = tl.y, mouseX = m.x, mouseY = m.y }
+
+  local et = hs.eventtap.event.types
+  dragTap = hs.eventtap.new({ et.leftMouseDragged, et.mouseMoved, et.leftMouseUp },
+    function(e)
+      local d = drag
+      if not d then endDrag(false); return false end
+      if e:getType() == et.leftMouseUp then endDrag(true); return false end
+      local p = hs.mouse.absolutePosition()
+      dragMoveTo(p.x, p.y)
+      return false                       -- pass through; never consume
+    end)
+  dragTap:start()
+  -- A missed mouseUp must not leave a live tap behind.
+  dragWatchdog = hs.timer.doAfter(30, function() endDrag(false) end)
+end
+
+local function onMouse(cv, message, elementId)
+  local sid = nil
+  if type(elementId) == "string" then
+    sid = tonumber(elementId:match("^go:(%-?%d+)$") or "")
+  end
+  if message == "mouseDown" then
+    if not M.draggable then return end
+    local uuid
+    for _, c in ipairs(canvases) do
+      if c.cv == cv then uuid = c.uuid break end
+    end
+    startDrag(cv, uuid, sid)
+  elseif message == "mouseUp" then
+    -- When dragging is on, the event tap decides click-vs-drag; it also catches
+    -- a release that lands after the pointer has left the panel.
+    if M.draggable then return end
+    if sid then pcall(hs.spaces.gotoSpace, sid) end
+  end
+end
+
+-- Forget any dragged position and go back to M.corner.
+function M.resetPanelPosition()
+  panelPos = {}
+  pcall(M.saveLayout)
+  draw()
+  hs.alert.show("Dashboard position reset")
+end
+
 draw = function()
-  for _, c in ipairs(canvases) do c:delete() end
+  for _, c in ipairs(canvases) do pcall(function() c.cv:delete() end) end
   canvases = {}
   if not M.visible then return end
 
@@ -693,11 +787,20 @@ draw = function()
 
   for _, s in ipairs(screens) do
     local f = s:frame()
+    local uuid = s:getUUID()
     local x, y
     if M.corner == "topleft" then x, y = f.x + M.margin, f.y + M.margin
     elseif M.corner == "topright" then x, y = f.x + f.w - panelW - M.margin, f.y + M.margin
     elseif M.corner == "bottomleft" then x, y = f.x + M.margin, f.y + f.h - panelH - M.margin
     else x, y = f.x + f.w - panelW - M.margin, f.y + f.h - panelH - M.margin end
+
+    -- A dragged position wins over M.corner, clamped so a grabbable strip always
+    -- stays on screen — otherwise the panel could be dragged out of reach.
+    local pos = uuid and panelPos[uuid]
+    if pos then
+      x = math.max(f.x - panelW + 60, math.min(pos.x, f.x + f.w - 60))
+      y = math.max(f.y,               math.min(pos.y, f.y + f.h - 30))
+    end
 
     local cv = hs.canvas.new({ x = x, y = y, w = panelW, h = panelH })
     cv:behavior({ "canJoinAllSpaces", "stationary" })
@@ -705,10 +808,13 @@ draw = function()
     cv:clickActivating(false)
     cv:mouseCallback(onMouse)
 
+    -- The background catches presses on any empty part of the panel, so it can
+    -- be grabbed by the header, the legend, or the gaps — not only the lines.
     cv:appendElements({
       type = "rectangle", action = "fill",
       fillColor = { red = 0, green = 0, blue = 0, alpha = 0.74 },
       roundedRectRadii = { xRadius = 10, yRadius = 10 },
+      trackMouseDown = true, id = "bg",
     })
 
     local cy = pad
@@ -744,7 +850,8 @@ draw = function()
           textFont = "Menlo", textSize = M.fontSize,
           textColor = { white = 1, alpha = 1 },
           frame = { x = pad, y = cy, w = panelW - pad * 2, h = lineH },
-          trackMouseUp = true, id = "go:" .. tostring(e.sid),
+          trackMouseUp = true, trackMouseDown = true,
+          id = "go:" .. tostring(e.sid),
         })
         cy = cy + lineH
       end
@@ -785,7 +892,7 @@ draw = function()
     end
 
     cv:show()
-    canvases[#canvases + 1] = cv
+    canvases[#canvases + 1] = { cv = cv, uuid = uuid }
   end
 end
 
@@ -916,7 +1023,8 @@ function M.saveLayout()
         manual = overrides[sid] ~= nil, windows = windows,
       }
     end
-    state.screens[key] = { name = s:name() or "", desktops = desktops }
+    state.screens[key] = { name = s:name() or "", desktops = desktops,
+                           panel = panelPos[key] }
   end
   saveState(state)
 end
@@ -925,7 +1033,12 @@ local function restoreNames()
   local state = loadState()
   if not (state and state.screens) then return end
   for _, s in ipairs(hs.screen.allScreens()) do
-    local saved = state.screens[s:getUUID() or s:name() or "screen"]
+    local key   = s:getUUID() or s:name() or "screen"
+    local saved = state.screens[key]
+    if saved and type(saved.panel) == "table"
+       and tonumber(saved.panel.x) and tonumber(saved.panel.y) then
+      panelPos[key] = { x = tonumber(saved.panel.x), y = tonumber(saved.panel.y) }
+    end
     if saved and saved.desktops then
       local spaces = safeSpacesForScreen(s)
       for i, sid in ipairs(spaces) do
@@ -1027,13 +1140,14 @@ function M.start()
 end
 
 function M.stop()
+  endDrag(false)                 -- never leave a mouse tap running
   if refreshTimer  then refreshTimer:stop() end
   if claudeTimer   then claudeTimer:stop() end
   if autosaveTimer then autosaveTimer:stop() end
   if spaceWatcher  then spaceWatcher:stop() end
   if screenWatcher then screenWatcher:stop() end
   if winWatcher    then winWatcher:unsubscribeAll() end
-  for _, c in ipairs(canvases) do c:delete() end
+  for _, c in ipairs(canvases) do pcall(function() c.cv:delete() end) end
   canvases = {}
 end
 

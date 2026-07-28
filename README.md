@@ -119,6 +119,7 @@ restarting Hammerspoon to load the config, works from a shell.
 | ⌘⌃⌥ N | Name the current Desktop yourself |
 | ⌘⌃⌥ R | Restore the saved window layout (move/open windows to match) |
 | ⌘⌃⌥ S | Visit every Desktop once and label the ones you haven't named |
+| Drag the panel | Move it anywhere; the position is remembered per display |
 
 **A name you type yourself sticks.** It beats whatever the dashboard would have worked
 out, and ⌘⌃⌥S will not overwrite it — that's the point of setting one. To go back to
@@ -126,6 +127,12 @@ automatic labeling, press ⌘⌃⌥N on that Desktop again and submit an **empty
 
 Behind the scenes a scan still works out the automatic label for a Desktop you've named,
 it just doesn't show it. So clearing your name reveals a current label, not a stale one.
+
+**Dragging.** Press anywhere on the panel and drag it where you like. Each display
+remembers its own position, and it survives a reload. A press that moves less than a few
+pixels still counts as a click, so dragging doesn't interfere with clicking a line to
+switch Desktops. `dd.resetPanelPosition()` in the Hammerspoon Console puts it back in the
+corner; `M.draggable = false` disables dragging entirely.
 
 ## The claude session dot
 
