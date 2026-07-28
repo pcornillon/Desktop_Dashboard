@@ -119,6 +119,20 @@ titles (so Finder/Terminal still contribute repo hints), but excludes the titles
   happening, never why it stopped, so "needs you" is not derivable and there is no red
   dot. Do not add one by guessing — if a marker appears in a future Claude Code release,
   verify it the same way before wiring it to `M.claudeDotColors`.
+- **Green means "finished and unseen", not "idle".** The dot is set on the working →
+  not-working edge (`noteTransitions`) and cleared when you visit that Desktop
+  (`acknowledgeSids`), so it reports *a prompt that completed while you were elsewhere*
+  rather than the mere absence of work. Sessions already idle at launch are never
+  flagged, or every login would show a wall of green. Re-prompting clears the flag.
+  Acknowledging by pressing return in the claude window is **not** possible: an empty
+  return does not change the terminal title, so there is nothing to observe.
+- **`acknowledgeSids` takes Space ids instead of looking them up.** `scanActive` has
+  already paid for `activeSids()`, and `hs.spaces` calls are slow enough that repeating
+  them on the dot's 3 s timer was a measurable cost — an early version called them from
+  the task callback and it was the wrong place.
+- **The dot has its own timer.** Riding the 10 s `scanActive` made it lag far enough that
+  a session looked idle for seconds after it started working — the panel read "all green"
+  during real work. `M.claudeDotSeconds` (3 s) drives it directly.
 - **Read the dot's state from Terminal's AppleScript, not Accessibility.** Terminal
   reports titles for windows on ALL Spaces, so the dot stays correct for Desktops you are
   not viewing — the one place this tool escapes the "only the active Space is readable"

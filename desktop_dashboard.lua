@@ -43,7 +43,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v19 (claude session dot on repo Desktops, 2026-07-28)"
+M.version = "v20 (dot clears when acknowledged; 3s refresh, 2026-07-28)"
 
 -- ============================ CONFIG ============================
 
@@ -93,12 +93,17 @@ M.appLabels = {
 --
 -- Titles come from Terminal via AppleScript, not Accessibility, so this works
 -- for Desktops you are not currently viewing.
+-- A green dot is an UNACKNOWLEDGED completion, not merely "idle": it appears
+-- when a session goes from working to not-working, and clears once you visit
+-- that Desktop (clicking its line counts, since that switches you there).
+-- A session that was already idle at launch shows nothing — only work that
+-- finishes while the dashboard is watching is worth flagging.
 M.showClaudeDot    = true
 M.claudeDotChar    = "●"
-M.claudeDotSeconds = 5           -- min gap between title reads (async, never blocks)
+M.claudeDotSeconds = 3           -- how often titles are read (async, never blocks)
 M.claudeDotColors  = {
-  working = { red = 1.00, green = 0.78, blue = 0.20, alpha = 1 },   -- yellow
-  idle    = { red = 0.30, green = 0.85, blue = 0.40, alpha = 1 },   -- green
+  working = { red = 1.00, green = 0.78, blue = 0.20, alpha = 1 },   -- yellow: computing
+  done    = { red = 0.30, green = 0.85, blue = 0.40, alpha = 1 },   -- green: finished, unseen
 }
 
 M.categories = {
@@ -179,7 +184,9 @@ local overrides  = {}          -- spaceID -> manual name
 local repos      = {}
 local reposLoadedAt = 0        -- when loadRepos() last ran (see refreshRepos)
 local claudeStates = {}        -- repo name (lowercased) -> "working" | "idle"
-local claudeStatesAt, claudeTask = 0, nil
+local claudePrev   = {}        -- previous sample, for spotting working -> idle
+local claudeDone   = {}        -- repo name -> true: finished, not yet acknowledged
+local claudeStatesAt, claudeTask, claudeTimer = 0, nil, nil
 local refreshTimer, autosaveTimer, spaceWatcher, screenWatcher, winWatcher, debounceTimer
 local draw                     -- forward declaration
 local scanningAll = false      -- true only during a ⌘⌃⌥S walk
@@ -278,11 +285,51 @@ local function parseClaudeTitles(text)
   return st
 end
 
-local function statesKey(t)
+-- What the panel would show: the state plus the unacknowledged flag, since a
+-- green dot depends on both. Used to decide whether a repaint is warranted.
+local function dotKey()
   local keys = {}
-  for k, v in pairs(t or {}) do keys[#keys + 1] = k .. "=" .. v end
+  for k, v in pairs(claudeStates) do
+    keys[#keys + 1] = k .. "=" .. v .. (claudeDone[k] and "!" or "")
+  end
   table.sort(keys)
   return table.concat(keys, ",")
+end
+
+-- A completion is the working -> not-working edge. Starting work again clears
+-- the flag, so a session you re-prompt stops nagging on its own.
+local function noteTransitions(fresh)
+  for key, state in pairs(fresh) do
+    if state == "working" then
+      claudeDone[key] = nil
+    elseif claudePrev[key] == "working" then
+      claudeDone[key] = true
+    end
+  end
+  for key in pairs(claudeDone) do
+    if not fresh[key] then claudeDone[key] = nil end   -- session went away
+  end
+  claudePrev = fresh
+end
+
+-- Clear the flag for the Desktops you are looking at. Clicking a line switches
+-- you to that Desktop, so it acknowledges through this path too — there is no
+-- separate click target on the dot itself.
+--
+-- Takes the Space ids rather than looking them up: the caller (scanActive) has
+-- already paid for activeSids(), and hs.spaces calls are slow enough that
+-- repeating them on the dot's 3s timer would be a real cost.
+local function acknowledgeSids(sids)
+  if not M.showClaudeDot then return false end
+  local changed = false
+  for _, sid in ipairs(sids or {}) do
+    local label = overrides[sid] or labelCache[sid]
+    if label then
+      local key = tostring(label):lower()
+      if claudeDone[key] then claudeDone[key] = nil; changed = true end
+    end
+  end
+  return changed
 end
 
 -- Refresh asynchronously via hs.task: an Apple Event to a wedged Terminal must
@@ -293,16 +340,19 @@ local function refreshClaudeStates()
   if not M.showClaudeDot then claudeStates = {}; return end
   if claudeTask then return end                     -- one request in flight
   local now = hs.timer.secondsSinceEpoch()
-  if now - claudeStatesAt < (M.claudeDotSeconds or 5) then return end
+  -- Half the interval, so timer jitter can never make a tick skip itself.
+  if now - claudeStatesAt < (M.claudeDotSeconds or 3) * 0.5 then return end
   claudeStatesAt = now
   local ok, t = pcall(hs.task.new, "/usr/bin/osascript", function(_, stdout, _)
     claudeTask = nil
-    local fresh = parseClaudeTitles(stdout)
+    local before = dotKey()
+    claudeStates = parseClaudeTitles(stdout)
+    noteTransitions(claudeStates)
+    -- Acknowledgement is left to scanActive / the space watcher, which already
+    -- know which Spaces are active; asking hs.spaces again here would be slow.
     -- Redraw only when a dot actually changed. draw() tears down and rebuilds
     -- every canvas, so repainting on an unchanged result is pure churn.
-    local changed = statesKey(fresh) ~= statesKey(claudeStates)
-    claudeStates = fresh
-    if changed then pcall(draw) end
+    if dotKey() ~= before then pcall(draw) end
   end, { "-e", CLAUDE_TITLE_SCRIPT })
   if ok and t then claudeTask = t; t:start() end
 end
@@ -450,7 +500,9 @@ local function scanActive()
   refreshRepos()
   refreshClaudeStates()
   local byId = snapshot()
-  for _, sid in ipairs(activeSids()) do labelSpace(byId, sid) end
+  local sids = activeSids()
+  for _, sid in ipairs(sids) do labelSpace(byId, sid) end
+  acknowledgeSids(sids)          -- you are looking at these Desktops right now
   if not scanningAll then M.status = nil end   -- clear any stale scan status
 end
 
@@ -470,15 +522,21 @@ end
 -- The dot is shown only for a Desktop whose label IS a repo name and which has
 -- a claude session in that repo — matching the Terminal title's cwd component
 -- against the label, which needs no window-to-Space mapping.
+-- "working" (yellow), "done" (green, finished and unacknowledged), or nil for
+-- no dot at all — which covers both "no session here" and "you've seen it".
 local function claudeStateFor(label)
   if not M.showClaudeDot then return nil end
   local key = tostring(label or ""):lower()
   if key == "" then return nil end
   local state = claudeStates[key]
   if not state then return nil end
+  local isRepo = false
   for _, r in ipairs(repos) do
-    if r.name:lower() == key then return state end
+    if r.name:lower() == key then isRepo = true break end
   end
+  if not isRepo then return nil end
+  if state == "working" then return "working" end
+  if claudeDone[key] then return "done" end
   return nil
 end
 
@@ -814,6 +872,9 @@ function M.start()
   winWatcher:subscribe({ hs.window.filter.windowCreated, hs.window.filter.windowDestroyed }, debouncedRefresh)
 
   refreshTimer  = hs.timer.doEvery(M.refreshSeconds, M.refresh)
+  -- The dot gets its own, faster timer. Riding the 10s scan made it lag far
+  -- enough that a session looked idle for seconds after it started working.
+  claudeTimer   = hs.timer.doEvery(M.claudeDotSeconds, refreshClaudeStates)
   autosaveTimer = hs.timer.doEvery(M.autosaveMinutes * 60, M.saveLayout)
   hs.shutdownCallback = function() pcall(M.saveLayout) end
 
@@ -829,6 +890,7 @@ end
 
 function M.stop()
   if refreshTimer  then refreshTimer:stop() end
+  if claudeTimer   then claudeTimer:stop() end
   if autosaveTimer then autosaveTimer:stop() end
   if spaceWatcher  then spaceWatcher:stop() end
   if screenWatcher then screenWatcher:stop() end

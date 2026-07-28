@@ -86,8 +86,20 @@ a colored dot between the Desktop number and the arrow:
 
 ```
 ▸ Desktop 10 ● → Desktop_Dashboard      yellow — that session is working
-   Desktop 4 ● → opendap-registry        green — that session is not working
+   Desktop 4 ● → opendap-registry        green — it finished and you haven't looked
+   Desktop 7   → SIED                    no dot — nothing to tell you
 ```
+
+**Green means "finished, unseen" — not merely "idle".** It appears on the working →
+not-working edge, so it marks a prompt that *completed while you were elsewhere*. It
+clears when you visit that Desktop; clicking its line in the panel counts, since that
+switches you there. Re-prompting a session clears it too (it goes yellow again). A
+session that was already sitting idle when the dashboard started shows nothing at all,
+so you don't get a wall of green on login.
+
+There is no way to acknowledge by pressing return in the claude window: an empty return
+doesn't change the terminal title, so the dashboard has no way to observe it. Visiting
+the Desktop is the acknowledgement.
 
 **There are only two colors, and that is a limit of the signal, not a shortcut.** Claude
 Code stamps the terminal title with an animated Braille spinner while it computes and
