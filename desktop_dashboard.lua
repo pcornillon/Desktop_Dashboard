@@ -43,7 +43,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v26 (drag the panel to reposition it, 2026-07-28)"
+M.version = "v27 (terminals mode: one line per claude session, 2026-07-28)"
 
 -- ============================ CONFIG ============================
 
@@ -174,6 +174,20 @@ M.categoryPatterns = {
   { pat = "PyCharm", cat = "PyCharm" },
 }
 
+-- What the panel lists.
+--   "desktops"  one line per Desktop (the original behaviour)
+--   "terminals" one line per running claude session, wherever its window is —
+--               for people who keep every session on a single Desktop, where
+--               listing Desktops says almost nothing
+--   "both"      Desktops, then a Claude sessions section underneath
+-- ⌘⌃⌥M cycles through them.
+M.mode            = "desktops"
+M.sessionHeader   = "Claude sessions:"
+M.sessionSummaryChars = 32      -- task summary shown after the project name; the
+                                -- summary is what tells two sessions in the same
+                                -- repo apart, so it is worth the width
+M.modeHotkey      = { mods = {"cmd","ctrl","alt"}, key = "m" }
+
 -- Drag the panel with the mouse. A position you drag to is remembered per
 -- display and survives a reload; M.resetPanelPosition() puts it back in the
 -- corner. Set false to pin the panel and disable all mouse-drag handling.
@@ -219,6 +233,9 @@ local repos      = {}
 local reposLoadedAt = 0        -- when loadRepos() last ran (see refreshRepos)
 local claudeStates = {}        -- repo name (lowercased) -> "working" | "idle"
 local claudeHooks  = {}        -- repo name -> "working" | "waiting" | "done" (from hooks)
+local sessions     = {}        -- one entry per claude terminal window, ordered
+local sessionPrev  = {}        -- Terminal window id -> previous state
+local sessionDone  = {}        -- Terminal window id -> finished, unacknowledged
 local claudePrev   = {}        -- previous sample, for spotting working -> idle
 local claudeDone   = {}        -- repo name -> true: finished, not yet acknowledged
 local claudeStatesAt, claudeTask, claudeTimer = 0, nil, nil
@@ -287,7 +304,7 @@ if application "Terminal" is running then
   tell application "Terminal"
     set out to ""
     repeat with w in windows
-      set out to out & (name of w) & linefeed
+      set out to out & ((id of w) as text) & "|" & (name of w) & linefeed
     end repeat
     return out
   end tell
@@ -306,22 +323,45 @@ end
 --   "<cwd basename> — <glyph> <task summary> — caffeinate ◂ claude — 254×64"
 -- The trailing process component varies with whatever child is running
 -- (caffeinate, security, …), so match "claude" anywhere rather than exactly.
+-- Returns two views of the same read:
+--   byRepo   repo name -> state, collapsed. Drives the Desktop-mode dot.
+--   sessions one entry per claude window, NOT collapsed. Drives terminal mode,
+--            so two sessions in the same repo stay two lines.
+--
+-- Terminal's own window `id` is what makes per-session identity possible: it is
+-- stable for the life of the window and unique even when two windows sit in the
+-- same directory, which a repo name cannot distinguish.
 local function parseClaudeTitles(text)
-  local st = {}
+  local byRepo, sessions = {}, {}
   for line in tostring(text or ""):gmatch("[^\r\n]+") do
-    if line:find("claude", 1, true) then
-      local cwd, rest = line:match("^%s*(.-) — (.*)$")
-      if cwd and cwd ~= "" and rest then
-        local glyph = rest:match("^(.-)%s") or ""
-        local cp = firstCodepoint(glyph)
-        -- Braille block: the spinner Claude Code animates while computing.
-        local state = (cp and cp >= 0x2800 and cp <= 0x28FF) and "working" or "idle"
-        local key = cwd:lower()
-        if st[key] ~= "working" then st[key] = state end   -- any busy session wins
-      end
+    local wid, title = line:match("^(%d+)|(.*)$")
+    if not title then title = line end            -- tolerate an id-less read
+    -- Terminal builds its title from parts: cwd — <spinner + task> — process — WxH
+    local comps = {}
+    for part in (title .. " — "):gmatch("(.-) — ") do comps[#comps + 1] = part end
+    -- A real session has all four parts AND names claude as the running process.
+    -- Matching "claude" anywhere in the title also caught a plain shell sitting
+    -- in a directory called .claude, which it did.
+    local proc = comps[#comps - 1]
+    if #comps >= 4 and proc and proc:lower():find("claude", 1, true) then
+      local cwd  = comps[1]
+      local body = comps[2] or ""
+      local glyph = body:match("^(.-)%s") or ""
+      local cp = firstCodepoint(glyph)
+      -- Braille block: the spinner Claude Code animates while computing.
+      local state = (cp and cp >= 0x2800 and cp <= 0x28FF) and "working" or "idle"
+      local key = cwd:lower()
+      if byRepo[key] ~= "working" then byRepo[key] = state end  -- any busy session wins
+      sessions[#sessions + 1] = {
+        wid = tonumber(wid), project = cwd, state = state,
+        summary = body:gsub("^%S+%s*", ""),      -- task text, minus the spinner
+      }
     end
   end
-  return st
+  -- Terminal ids ascend with creation order, so ordering is stable across polls
+  -- and T1/T2/T3 keep meaning without anyone registering anything.
+  table.sort(sessions, function(a, b) return (a.wid or 0) < (b.wid or 0) end)
+  return byRepo, sessions
 end
 
 -- One small JSON file per live session, written by the Claude Code hooks. Local
@@ -358,8 +398,30 @@ local function dotKey()
   for k, v in pairs(claudeStates) do
     keys[#keys + 1] = k .. "=" .. v .. (claudeDone[k] and "!" or "") .. "/" .. tostring(claudeHooks[k])
   end
+  for _, s in ipairs(sessions) do
+    keys[#keys + 1] = "w" .. tostring(s.wid) .. "=" .. s.state ..
+                      (sessionDone[s.wid] and "!" or "") .. "/" .. tostring(s.summary)
+  end
   table.sort(keys)
   return table.concat(keys, ",")
+end
+
+-- Same working -> not-working edge as noteTransitions, but per terminal window
+-- rather than per repo, so two sessions in one repo flag independently.
+local function noteSessionTransitions(list)
+  local seen = {}
+  for _, s in ipairs(list) do
+    local id = s.wid
+    if id then
+      seen[id] = true
+      if s.state == "working" then sessionDone[id] = nil
+      elseif sessionPrev[id] == "working" then sessionDone[id] = true end
+      sessionPrev[id] = s.state
+    end
+  end
+  for id in pairs(sessionPrev) do
+    if not seen[id] then sessionPrev[id] = nil; sessionDone[id] = nil end
+  end
 end
 
 -- A completion is the working -> not-working edge. Starting work again clears
@@ -412,9 +474,10 @@ local function refreshClaudeStates()
   local ok, t = pcall(hs.task.new, "/usr/bin/osascript", function(_, stdout, _)
     claudeTask = nil
     local before = dotKey()
-    claudeStates = parseClaudeTitles(stdout)
+    claudeStates, sessions = parseClaudeTitles(stdout)
     claudeHooks  = readHookStates()
     noteTransitions(claudeStates)
+    noteSessionTransitions(sessions)
     -- Acknowledgement is left to scanActive / the space watcher, which already
     -- know which Spaces are active; asking hs.spaces again here would be slow.
     -- Redraw only when a dot actually changed. draw() tears down and rebuilds
@@ -645,6 +708,41 @@ local function claudeStateFor(label)
   return nil
 end
 
+-- One line per live claude session: "T1 ● project — summary".
+--
+-- Yellow and green are per session, because the spinner is read from that
+-- window's own title. Red is per repo: the hooks record a session id and a cwd,
+-- and there is no key joining a hook file to a Terminal window — so if two
+-- sessions share a repo and one is asking you something, both show red.
+local function sessionEntries()
+  local entries = {}
+  for i, s in ipairs(sessions) do
+    local key   = tostring(s.project or ""):lower()
+    local state = nil
+    if M.showClaudeDot then
+      if s.state == "working" then state = "working"
+      elseif claudeHooks[key] == "waiting" then state = "waiting"
+      elseif sessionDone[s.wid] then state = "done" end
+    end
+    local dot = state and (M.claudeDotChar or "●") or " "
+    local summary = tostring(s.summary or "")
+    local lim = M.sessionSummaryChars or 32
+    if uwidth(summary) > lim then summary = summary:sub(1, lim) .. "…" end
+    local prefix = string.format("   T%d ", i)
+    local suffix = string.format(" %s%s", s.project or "?",
+                                 summary ~= "" and ("  " .. summary) or "")
+    entries[#entries + 1] = {
+      sid = nil, wid = s.wid, state = state, dot = dot,
+      prefix = prefix, suffix = suffix, text = prefix .. dot .. suffix,
+    }
+  end
+  if #entries == 0 then
+    local msg = "   (no claude sessions found)"
+    entries[1] = { state = nil, dot = " ", prefix = msg, suffix = "", text = msg }
+  end
+  return entries
+end
+
 local function screenEntries(screen)
   local spaces = safeSpacesForScreen(screen)
   local active = safeActiveSpace(screen)
@@ -672,6 +770,27 @@ end
 -- the pointer and strand the session. It never consumes events (always returns
 -- false), so it cannot swallow input belonging to other apps.
 
+-- Bring a Terminal window to the front. macOS follows it to whatever Desktop it
+-- lives on, so this doubles as "go to that session". Run through hs.task so a
+-- busy Terminal cannot stall the panel.
+local function focusTerminalWindow(wid)
+  if not wid then return end
+  sessionDone[wid] = nil                 -- looking at it is acknowledging it
+  local script = string.format(
+    'tell application "Terminal"\nactivate\nset index of window id %d to 1\nend tell', wid)
+  local ok, t = pcall(hs.task.new, "/usr/bin/osascript", nil, { "-e", script })
+  if ok and t then t:start() end
+end
+
+-- A click that never became a drag acts on whatever it landed on.
+local function activateElement(elementId)
+  if type(elementId) ~= "string" then return end
+  local sid = tonumber(elementId:match("^go:(%-?%d+)$") or "")
+  if sid then pcall(hs.spaces.gotoSpace, sid); return end
+  local wid = tonumber(elementId:match("^term:(%d+)$") or "")
+  if wid then focusTerminalWindow(wid); pcall(draw) end
+end
+
 local function endDrag(commit)
   if dragTap      then dragTap:stop();      dragTap = nil end
   if dragWatchdog then dragWatchdog:stop(); dragWatchdog = nil end
@@ -680,8 +799,8 @@ local function endDrag(commit)
   if not d then return end
   if d.moved then
     pcall(M.saveLayout)                  -- remember where it was put
-  elseif commit and d.sid then
-    pcall(hs.spaces.gotoSpace, d.sid)    -- never moved: it was a click
+  elseif commit then
+    activateElement(d.elementId)         -- never moved: it was a click
   end
 end
 
@@ -703,13 +822,13 @@ local function dragMoveTo(px, py)
   return true
 end
 
-local function startDrag(cv, uuid, sid)
+local function startDrag(cv, uuid, elementId)
   if not (M.draggable and cv) then return end
   endDrag(false)                         -- never stack sessions
   local okTL, tl = pcall(function() return cv:topLeft() end)
   if not (okTL and tl) then return end
   local m = hs.mouse.absolutePosition()
-  drag = { cv = cv, uuid = uuid, sid = sid, moved = false,
+  drag = { cv = cv, uuid = uuid, elementId = elementId, moved = false,
            originX = tl.x, originY = tl.y, mouseX = m.x, mouseY = m.y }
 
   local et = hs.eventtap.event.types
@@ -728,23 +847,29 @@ local function startDrag(cv, uuid, sid)
 end
 
 local function onMouse(cv, message, elementId)
-  local sid = nil
-  if type(elementId) == "string" then
-    sid = tonumber(elementId:match("^go:(%-?%d+)$") or "")
-  end
   if message == "mouseDown" then
     if not M.draggable then return end
     local uuid
     for _, c in ipairs(canvases) do
       if c.cv == cv then uuid = c.uuid break end
     end
-    startDrag(cv, uuid, sid)
+    startDrag(cv, uuid, elementId)
   elseif message == "mouseUp" then
     -- When dragging is on, the event tap decides click-vs-drag; it also catches
     -- a release that lands after the pointer has left the panel.
     if M.draggable then return end
-    if sid then pcall(hs.spaces.gotoSpace, sid) end
+    activateElement(elementId)
   end
+end
+
+-- Cycle desktops -> terminals -> both. Kept as a hotkey because which view is
+-- useful depends on how you have your sessions arranged today.
+function M.cycleMode()
+  local order = { desktops = "terminals", terminals = "both", both = "desktops" }
+  M.mode = order[M.mode] or "desktops"
+  pcall(scanActive)
+  draw()
+  hs.alert.show("Dashboard: " .. M.mode)
 end
 
 -- Forget any dragged position and go back to M.corner.
@@ -764,13 +889,22 @@ draw = function()
   local multi   = (#screens > 1)
   local hasStatus = (M.status ~= nil and M.status ~= "")
   local blocks, maxChars, totalRows = {}, 8, 0
-  for _, s in ipairs(screens) do
-    local entries = screenEntries(s)
-    local header  = multi and ((s:name() or "Screen") .. ":") or nil
+  local function addBlock(header, entries)
     if header then maxChars = math.max(maxChars, uwidth(header)) end
     for _, e in ipairs(entries) do maxChars = math.max(maxChars, uwidth(e.text)) end
     totalRows = totalRows + #entries + (header and 1 or 0)
     blocks[#blocks + 1] = { header = header, entries = entries }
+  end
+
+  if M.mode ~= "terminals" then
+    for _, s in ipairs(screens) do
+      addBlock(multi and ((s:name() or "Screen") .. ":") or nil, screenEntries(s))
+    end
+  end
+  if M.mode == "terminals" or M.mode == "both" then
+    -- In "both" the section needs a header to separate it from the Desktops;
+    -- alone it is the whole panel and a header would just be noise.
+    addBlock(M.mode == "both" and M.sessionHeader or nil, sessionEntries())
   end
   if hasStatus then maxChars = math.max(maxChars, uwidth(M.status)) end
   local legendLines = (M.showLegend and M.legendLines) or {}
@@ -851,7 +985,8 @@ draw = function()
           textColor = { white = 1, alpha = 1 },
           frame = { x = pad, y = cy, w = panelW - pad * 2, h = lineH },
           trackMouseUp = true, trackMouseDown = true,
-          id = "go:" .. tostring(e.sid),
+          id = e.sid and ("go:" .. tostring(e.sid))
+               or (e.wid and ("term:" .. tostring(e.wid)) or "line"),
         })
         cy = cy + lineH
       end
@@ -1133,6 +1268,7 @@ function M.start()
   hs.hotkey.bind(M.nameHotkey.mods,    M.nameHotkey.key,    M.nameCurrent)
   hs.hotkey.bind(M.restoreHotkey.mods, M.restoreHotkey.key, M.restoreLayout)
   hs.hotkey.bind(M.scanHotkey.mods,    M.scanHotkey.key,    M.scanAll)
+  hs.hotkey.bind(M.modeHotkey.mods,    M.modeHotkey.key,    M.cycleMode)
 
   print("desktop_dashboard " .. M.version .. " loaded")
   hs.alert.show("Desktop dashboard " .. M.version .. " on")

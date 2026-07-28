@@ -134,6 +134,35 @@ pixels still counts as a click, so dragging doesn't interfere with clicking a li
 switch Desktops. `dd.resetPanelPosition()` in the Hammerspoon Console puts it back in the
 corner; `M.draggable = false` disables dragging entirely.
 
+## Two views: Desktops or sessions
+
+The panel can list **Desktops** (the default), **claude sessions**, or both. **⌘⌃⌥M**
+cycles; `M.mode` sets the startup value.
+
+Sessions view exists for a different working style: if you keep every claude session on a
+single Desktop, listing Desktops tells you almost nothing. This lists the sessions instead,
+wherever their windows happen to be:
+
+```
+Claude sessions:
+   T1   three-way_SST_error_analysis_manuscript  Review status and continue asymm…
+   T2 ● opendap-registry                         Implement Phase 2 fingerprinting…
+   T3 ● MODIS_L2_Manuscript                      Claude Code
+```
+
+Sessions are found automatically — nothing to register. They're numbered in the order
+their terminal windows were created, so T1/T2/T3 stay put as sessions come and go. The
+task summary after the project name is what tells apart **two sessions in the same repo**,
+which the Desktop view cannot do at all. Click a line to bring that session's window
+forward; macOS follows it to whatever Desktop it lives on.
+
+Same dots, with one difference worth knowing: yellow and green are **per session**, since
+each is read from that window's own title. Red is **per repo** — the hooks record a
+session id and a working directory, and nothing joins a hook file to a specific terminal
+window, so if two sessions share a repo and one is asking you something, both show red.
+
+Sessions view needs **Terminal.app**; other terminals aren't listed.
+
 ## The claude session dot
 
 A Desktop labeled with a repo that also has a `claude` session running in that repo gets a
