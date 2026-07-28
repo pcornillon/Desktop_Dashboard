@@ -55,6 +55,21 @@ fi
 
 mkdir -p "$dir" 2>/dev/null || exit 0
 
+# Append-only trace of every invocation, capped. Set DASHBOARD_HOOK_TRACE=0 to
+# disable. Exists because hook writes failing silently is otherwise invisible:
+# the hook still exits 0 and nothing is logged anywhere.
+if [ "${DASHBOARD_HOOK_TRACE:-1}" = "1" ]; then
+  {
+    prev_dbg="$(jq -r '.state // "none"' "$dir/$sid.json" 2>/dev/null || echo none)"
+    printf '%s  event=%-8s prev=%-8s sid=%s\n' "$(date +%H:%M:%S)" "$state" "$prev_dbg" "${sid:0:8}"
+  } >> "$dir/trace.log" 2>/dev/null || true
+  # keep the last 300 lines
+  if [ -f "$dir/trace.log" ]; then
+    tail -n 300 "$dir/trace.log" > "$dir/trace.log.tmp" 2>/dev/null && \
+      mv "$dir/trace.log.tmp" "$dir/trace.log" 2>/dev/null || true
+  fi
+fi
+
 # Notification fires for two different things, and only one of them is a
 # question: Claude Code also sends an idle "waiting for your input" nudge about
 # a minute AFTER a turn ends. Treating that as a question turned every finished
