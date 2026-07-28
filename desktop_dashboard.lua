@@ -43,7 +43,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v23 (scan restores every display, not just one, 2026-07-28)"
+M.version = "v24 (red dot when claude wants you, via hooks, 2026-07-28)"
 
 -- ============================ CONFIG ============================
 
@@ -112,11 +112,20 @@ M.appLabels = {
 -- that Desktop (clicking its line counts, since that switches you there).
 -- A session that was already idle at launch shows nothing — only work that
 -- finishes while the dashboard is watching is worth flagging.
+-- RED comes from Claude Code hooks, not the title. The title cannot express it:
+-- a session blocked on a question shows the same ✳ as one that has finished
+-- (measured). The Notification hook is the only authoritative source, so
+-- ~/Dropbox/claude/claude-dashboard-state.sh writes one JSON file per session
+-- into claudeStateDir and this reads them. Without the hooks installed the dot
+-- still works — you simply never see red.
 M.showClaudeDot    = true
 M.claudeDotChar    = "●"
 M.claudeDotSeconds = 3           -- how often titles are read (async, never blocks)
+M.claudeStateDir   = os.getenv("HOME") .. "/.hammerspoon/claude_state"
+M.claudeHookMaxAgeHours = 12     -- ignore state files older than this
 M.claudeDotColors  = {
   working = { red = 1.00, green = 0.78, blue = 0.20, alpha = 1 },   -- yellow: computing
+  waiting = { red = 1.00, green = 0.28, blue = 0.26, alpha = 1 },   -- red: wants you
   done    = { red = 0.30, green = 0.85, blue = 0.40, alpha = 1 },   -- green: finished, unseen
 }
 
@@ -199,6 +208,7 @@ local overrides  = {}          -- spaceID -> manual name
 local repos      = {}
 local reposLoadedAt = 0        -- when loadRepos() last ran (see refreshRepos)
 local claudeStates = {}        -- repo name (lowercased) -> "working" | "idle"
+local claudeHooks  = {}        -- repo name -> "working" | "waiting" | "done" (from hooks)
 local claudePrev   = {}        -- previous sample, for spotting working -> idle
 local claudeDone   = {}        -- repo name -> true: finished, not yet acknowledged
 local claudeStatesAt, claudeTask, claudeTimer = 0, nil, nil
@@ -304,12 +314,39 @@ local function parseClaudeTitles(text)
   return st
 end
 
--- What the panel would show: the state plus the unacknowledged flag, since a
--- green dot depends on both. Used to decide whether a repaint is warranted.
+-- One small JSON file per live session, written by the Claude Code hooks. Local
+-- file reads on a handful of tiny files — cheap enough for the 3s cycle.
+local function readHookStates()
+  local out = {}
+  local dir = M.claudeStateDir
+  if not (dir and hs.fs.attributes(dir)) then return out end
+  local maxAge = (M.claudeHookMaxAgeHours or 12) * 3600
+  local now = os.time()
+  pcall(function()
+    for name in hs.fs.dir(dir) do
+      if name:sub(-5) == ".json" then
+        local t = hs.json.read(dir .. "/" .. name)
+        if type(t) == "table" and t.repo and t.state then
+          -- A session killed without SessionEnd leaves its file behind; age it out
+          -- so a stale "waiting" cannot pin a Desktop red forever.
+          if not t.at or (now - t.at) <= maxAge then
+            local key = tostring(t.repo):lower()
+            -- Several sessions in one repo: the one wanting you wins.
+            if t.state == "waiting" or out[key] == nil then out[key] = t.state end
+          end
+        end
+      end
+    end
+  end)
+  return out
+end
+
+-- What the panel would show: title state, the unacknowledged flag, and the hook
+-- state, since the dot depends on all three. Decides whether to repaint.
 local function dotKey()
   local keys = {}
   for k, v in pairs(claudeStates) do
-    keys[#keys + 1] = k .. "=" .. v .. (claudeDone[k] and "!" or "")
+    keys[#keys + 1] = k .. "=" .. v .. (claudeDone[k] and "!" or "") .. "/" .. tostring(claudeHooks[k])
   end
   table.sort(keys)
   return table.concat(keys, ",")
@@ -366,6 +403,7 @@ local function refreshClaudeStates()
     claudeTask = nil
     local before = dotKey()
     claudeStates = parseClaudeTitles(stdout)
+    claudeHooks  = readHookStates()
     noteTransitions(claudeStates)
     -- Acknowledgement is left to scanActive / the space watcher, which already
     -- know which Spaces are active; asking hs.spaces again here would be slow.
@@ -587,7 +625,12 @@ local function claudeStateFor(label)
     if r.name:lower() == key then isRepo = true break end
   end
   if not isRepo then return nil end
+  -- Computing beats everything: once you answer a question the session resumes,
+  -- the spinner returns, and the dot goes yellow without waiting on a hook.
   if state == "working" then return "working" end
+  -- Not computing. Only the hooks can say whether that is "blocked on you"
+  -- (red) or "finished" (green) — the title looks identical either way.
+  if claudeHooks[key] == "waiting" then return "waiting" end
   if claudeDone[key] then return "done" end
   return nil
 end

@@ -59,6 +59,45 @@ turning this into a repo.
    Config**. You should see `desktop_dashboard vNN … loaded` in the Hammerspoon Console and
    the panel appear in a corner.
 
+## Optional: the red dot (Claude Code hooks)
+
+The yellow and green dots work out of the box. **Red** — "this session is asking you
+something" — needs Claude Code to tell us, because a session blocked on a question puts
+exactly the same thing in its terminal title as one that has finished.
+
+1. Put `claude-dashboard-state.sh` somewhere stable and make it executable:
+
+   ```sh
+   cp claude-dashboard-state.sh ~/.claude/claude-dashboard-state.sh
+   chmod +x ~/.claude/claude-dashboard-state.sh
+   ```
+
+2. Register it on four events in `~/.claude/settings.json`. **Merge** with any hooks you
+   already have — append to an existing event's `hooks` array rather than replacing it:
+
+   ```json
+   {
+     "hooks": {
+       "UserPromptSubmit": [{ "hooks": [{ "type": "command", "async": true, "timeout": 5,
+         "command": "bash \"$HOME/.claude/claude-dashboard-state.sh\" working" }] }],
+       "Notification":     [{ "hooks": [{ "type": "command", "async": true, "timeout": 5,
+         "command": "bash \"$HOME/.claude/claude-dashboard-state.sh\" waiting" }] }],
+       "Stop":             [{ "hooks": [{ "type": "command", "async": true, "timeout": 5,
+         "command": "bash \"$HOME/.claude/claude-dashboard-state.sh\" done" }] }],
+       "SessionEnd":       [{ "hooks": [{ "type": "command", "async": true, "timeout": 5,
+         "command": "bash \"$HOME/.claude/claude-dashboard-state.sh\" gone" }] }]
+     }
+   }
+   ```
+
+3. Check it: `ls ~/.hammerspoon/claude_state/` should show one JSON file per live session
+   shortly after you next prompt a session. If nothing appears, open `/hooks` in Claude
+   Code once (that reloads the config) or restart the session.
+
+The script writes only to `~/.hammerspoon/claude_state/`, exits 0 unconditionally, and
+does nothing at all on a machine with no `~/.hammerspoon` — so it is safe to sync these
+settings across machines.
+
 ## First run
 
 Press **⌘⌃⌥S** once to walk every Desktop and label them all. After that it keeps itself

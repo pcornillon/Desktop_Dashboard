@@ -90,9 +90,13 @@ a colored dot between the Desktop number and the arrow:
 
 ```
 ▸ Desktop 10 ● → Desktop_Dashboard      yellow — that session is working
-   Desktop 4 ● → opendap-registry        green — it finished and you haven't looked
+   Desktop 4 ● → opendap-registry        red   — it is asking you something
+   Desktop 6 ● → MODIS_L2                green — it finished and you haven't looked
    Desktop 7   → SIED                    no dot — nothing to tell you
 ```
+
+Precedence is yellow → red → green. Computing always wins: the moment you answer a
+question the session resumes and the dot goes yellow again.
 
 **Green means "finished, unseen" — not merely "idle".** It appears on the working →
 not-working edge, so it marks a prompt that *completed while you were elsewhere*. It
@@ -100,6 +104,11 @@ clears when you visit that Desktop; clicking its line in the panel counts, since
 switches you there. Re-prompting a session clears it too (it goes yellow again). A
 session that was already sitting idle when the dashboard started shows nothing at all,
 so you don't get a wall of green on login.
+
+**Red requires the hooks** (see INSTALL.md). Without them everything still works, you
+just never see red — a session waiting on you shows green like any other finished one.
+That is not a shortcut: the terminal title is identical in both cases (measured), so
+only Claude Code's own `Notification` hook can tell them apart.
 
 There is no way to acknowledge by pressing return in the claude window: an empty return
 doesn't change the terminal title, so the dashboard has no way to observe it. Visiting

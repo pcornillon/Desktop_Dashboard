@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# claude-dashboard-state.sh — records this session's state for Desktop Dashboard.
+#
+# Usage (from ~/.claude/settings.json hooks):  claude-dashboard-state.sh <state>
+#   working   UserPromptSubmit — you sent a prompt, Claude is now busy
+#   waiting   Notification     — Claude wants your attention (permission/question)
+#   done      Stop             — the response finished
+#   gone      SessionEnd       — session over, drop its file
+#
+# Writes one small JSON file per session to a MACHINE-LOCAL directory:
+#   ~/.hammerspoon/claude_state/<session_id>.json
+# Machine-local on purpose — session ids and working directories are per-machine,
+# so this must NOT live in Dropbox even though this script does.
+#
+# Why hooks at all: the dashboard can already tell "computing" from "not
+# computing" by reading the terminal title (Claude Code animates a Braille
+# spinner there). What the title CANNOT express is *why* it stopped — a session
+# blocked on a question looks identical to one that finished. The Notification
+# hook is the only authoritative source for that, and it is what drives the red
+# dot. See CLAUDE.md in the Desktop_Dashboard repo.
+#
+# Never fails the hook: every step is guarded and the script always exits 0.
+# A hook that errors would interrupt the session it is meant to observe.
+
+set -u
+
+state="${1:-}"
+[ -n "$state" ] || exit 0
+
+dir="$HOME/.hammerspoon/claude_state"
+
+# No Hammerspoon on this machine (these settings sync via Dropbox) — do nothing.
+[ -d "$HOME/.hammerspoon" ] || exit 0
+
+payload="$(cat 2>/dev/null || true)"
+
+# `cwd` and `session_id` come from the hook payload; fall back sensibly so a
+# payload shape change degrades instead of breaking.
+cwd=""
+sid=""
+if [ -n "$payload" ] && command -v jq >/dev/null 2>&1; then
+  cwd="$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null || true)"
+  sid="$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null || true)"
+fi
+[ -n "$cwd" ] || cwd="$PWD"
+[ -n "$sid" ] || sid="nosession-$$"
+
+# Keep the id filesystem-safe.
+sid="$(printf '%s' "$sid" | tr -c 'A-Za-z0-9._-' '_')"
+
+if [ "$state" = "gone" ]; then
+  rm -f "$dir/$sid.json" 2>/dev/null || true
+  exit 0
+fi
+
+mkdir -p "$dir" 2>/dev/null || exit 0
+
+# Build with jq so a path containing quotes cannot produce invalid JSON.
+if command -v jq >/dev/null 2>&1; then
+  jq -n \
+    --arg state "$state" \
+    --arg cwd "$cwd" \
+    --arg repo "$(basename "$cwd")" \
+    --argjson at "$(date +%s)" \
+    '{state:$state, cwd:$cwd, repo:$repo, at:$at}' \
+    > "$dir/$sid.json" 2>/dev/null || true
+fi
+
+exit 0

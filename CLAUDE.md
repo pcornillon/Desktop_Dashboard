@@ -128,6 +128,20 @@ claude session (terminals), and everything else contributes normally.
   happening, never why it stopped, so "needs you" is not derivable and there is no red
   dot. Do not add one by guessing — if a marker appears in a future Claude Code release,
   verify it the same way before wiring it to `M.claudeDotColors`.
+- **Red comes from hooks, because the title provably cannot carry it.** Measured
+  2026-07-28: a session held at a question for 26 s showed the same `✳` as a finished
+  one. So `claude-dashboard-state.sh` (registered on `UserPromptSubmit`, `Notification`,
+  `Stop`, `SessionEnd`) writes one JSON file per session into `M.claudeStateDir`, and
+  `readHookStates()` reads them. `Notification` is the authoritative "wants you" signal.
+  Precedence in `claudeStateFor` is **working → waiting → done**: computing wins, so
+  answering a question turns the dot yellow again without waiting on any hook. Hooks are
+  optional — without them the dot degrades to yellow/green, never red. Do not try to
+  recover red from the title; that was measured and it is not there.
+- **Stale hook files age out.** A session killed without `SessionEnd` leaves its file
+  behind, and a stale `waiting` would pin a Desktop red forever;
+  `M.claudeHookMaxAgeHours` (12 h) bounds it. A second guard is structural: the dot only
+  renders when a *live* claude terminal title exists for that repo, so a dead session's
+  file cannot show anything by itself.
 - **Green means "finished and unseen", not "idle".** The dot is set on the working →
   not-working edge (`noteTransitions`) and cleared when you visit that Desktop
   (`acknowledgeSids`), so it reports *a prompt that completed while you were elsewhere*
