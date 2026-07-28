@@ -43,7 +43,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v22 (⌘⌃⌥S walk no longer dies mid-scan, 2026-07-28)"
+M.version = "v23 (scan restores every display, not just one, 2026-07-28)"
 
 -- ============================ CONFIG ============================
 
@@ -175,6 +175,7 @@ M.refreshSeconds  = 10          -- re-read the visible Desktop(s) this often (ch
 M.repoRescanSeconds = 30        -- re-list repoRoots this often, so repos created
                                 -- after launch get detected without a reload
 M.scanDwell       = 0.6         -- dwell per Desktop during ⌘⌃⌥S
+M.restoreDwell    = 0.5         -- gap between per-display restores after a scan
 M.autosaveMinutes = 4
 M.toggleHotkey    = { mods = {"cmd","ctrl","alt"}, key = "d" }
 M.nameHotkey      = { mods = {"cmd","ctrl","alt"}, key = "n" }
@@ -787,6 +788,8 @@ function M.scanAll()
   loadRepos()                    -- an explicit ⌘⌃⌥S always re-reads the repo list
   local start = {}
   for _, s in ipairs(hs.screen.allScreens()) do start[s] = safeActiveSpace(s) end
+  local okF, startFocused = pcall(hs.spaces.focusedSpace)
+  if not okF then startFocused = nil end
   local queue = {}
   for _, s in ipairs(hs.screen.allScreens()) do
     for i, sid in ipairs(safeSpacesForScreen(s)) do
@@ -797,10 +800,32 @@ function M.scanAll()
   local function step()
     k = k + 1
     if k > #queue then
-      for _, sid in pairs(start) do if sid then pcall(hs.spaces.gotoSpace, sid) end end
-      scanTimer = hs.timer.doAfter(0.35, function()
-        scanningAll = false; M.status = nil; pcall(scanActive); draw()
-      end)
+      -- Restore one display at a time. Firing every gotoSpace in a tight loop
+      -- leaves macOS mid-animation on the first switch, and the second one
+      -- swallows it — which restored the built-in display but left the iMac
+      -- parked on the last Desktop the walk visited.
+      --
+      -- The Space that had focus goes LAST, so focus lands back where it began
+      -- rather than on whichever display happened to be restored last.
+      local restores = {}
+      for _, sid in pairs(start) do
+        if sid and sid ~= startFocused then restores[#restores + 1] = sid end
+      end
+      if startFocused then restores[#restores + 1] = startFocused end
+
+      local ri = 0
+      local function restoreNext()
+        ri = ri + 1
+        if ri > #restores then
+          scanTimer = hs.timer.doAfter(0.35, function()
+            scanningAll = false; M.status = nil; pcall(scanActive); draw()
+          end)
+          return
+        end
+        pcall(hs.spaces.gotoSpace, restores[ri])
+        scanTimer = hs.timer.doAfter(M.restoreDwell or 0.5, restoreNext)
+      end
+      restoreNext()
       return
     end
     local item = queue[k]
