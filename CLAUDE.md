@@ -168,6 +168,22 @@ claude session (terminals), and everything else contributes normally.
 
 ## Gotchas for future work
 
+- **Keep a live reference to any `hs.timer.doAfter` whose callback must run.** A pending
+  timer with nothing referencing it can be garbage-collected before it fires — no error,
+  no log, it just never happens. The ⌘⌃⌥S walk chains one `doAfter` per Desktop, and
+  with no reference held it died at a different Desktop every run (observed: #1, #5, #6,
+  #9). It surfaced only once the claude dot began allocating on a 3 s timer, which raised
+  GC pressure enough to collect the pending step mid-walk. `scanTimer` holds it now.
+  Symptom to recognise: `M.status` frozen part-way, `scanningAll` stuck true, console
+  completely clean.
+- **`hs.spaces` queries throw rather than return nil.** `windowsForSpace`,
+  `spacesForScreen` and `activeSpaceOnScreen` reach through the Dock's accessibility
+  element and raise when that lookup transiently fails ("Unable to fetch
+  NSRunningApplication for pid: …"). `x or {}` cannot catch it. Use
+  `safeWindowsForSpace` / `safeSpacesForScreen` / `safeActiveSpace`. A failed read
+  returns nil and callers keep the previous label — blanking a Desktop to `—` because
+  one read glitched is worse than a stale name.
+
 - `~/.hammerspoon` is Hammerspoon's load path; the repo is elsewhere. `init.lua` bridges
   the two via `package.path` (see README). Don't assume the code is in `~/.hammerspoon`.
 - The state JSON is machine‑specific and lives in `~/.hammerspoon`, outside the repo.

@@ -43,7 +43,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v21 (Finder never hints; terminals hint only when running claude, 2026-07-28)"
+M.version = "v22 (⌘⌃⌥S walk no longer dies mid-scan, 2026-07-28)"
 
 -- ============================ CONFIG ============================
 
@@ -202,6 +202,10 @@ local claudePrev   = {}        -- previous sample, for spotting working -> idle
 local claudeDone   = {}        -- repo name -> true: finished, not yet acknowledged
 local claudeStatesAt, claudeTask, claudeTimer = 0, nil, nil
 local refreshTimer, autosaveTimer, spaceWatcher, screenWatcher, winWatcher, debounceTimer
+-- Holds the ⌘⌃⌥S walk's pending step. MUST be a live reference: an hs.timer
+-- with nothing referencing it can be garbage-collected before it fires, which
+-- silently ended the walk part way through — no error, just a stop.
+local scanTimer
 local draw                     -- forward declaration
 local scanningAll = false      -- true only during a ⌘⌃⌥S walk
 M.visible = true
@@ -450,10 +454,33 @@ local function docOf(w)
     :gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end))
 end
 
+-- hs.spaces queries reach through the Dock's accessibility element and THROW
+-- when that lookup transiently fails ("Unable to fetch NSRunningApplication for
+-- pid: …"). They do not return nil, so the `or {}` idiom cannot catch it, and a
+-- single throw inside a timer callback was enough to kill the whole ⌘⌃⌥S walk
+-- part way through. Every query goes through these wrappers.
+local function safeSpacesForScreen(scr)
+  local ok, v = pcall(hs.spaces.spacesForScreen, scr)
+  return (ok and type(v) == "table") and v or {}
+end
+
+local function safeActiveSpace(scr)
+  local ok, v = pcall(hs.spaces.activeSpaceOnScreen, scr)
+  return ok and v or nil
+end
+
+-- nil means "could not read this Space", which is NOT the same as "no windows
+-- on it" — the caller must keep the previous label rather than blank it.
+local function safeWindowsForSpace(sid)
+  local ok, v = pcall(hs.spaces.windowsForSpace, sid)
+  if ok and type(v) == "table" then return v end
+  return nil
+end
+
 local function activeSids()
   local t = {}
   for _, s in ipairs(hs.screen.allScreens()) do
-    local sid = hs.spaces.activeSpaceOnScreen(s)
+    local sid = safeActiveSpace(s)
     if sid then t[#t + 1] = sid end
   end
   return t
@@ -479,7 +506,9 @@ end
 -- their titles still feed the repo hint.
 local function readSpaceFrom(byId, sid)
   local funcs, ctx = {}, {}
-  for _, id in ipairs(hs.spaces.windowsForSpace(sid) or {}) do
+  local ids = safeWindowsForSpace(sid)
+  if not ids then return nil end        -- transient failure; caller keeps old label
+  for _, id in ipairs(ids) do
     local w = byId[id]
     if w then
       local oks, std = pcall(function() return w:isStandard() end)
@@ -512,6 +541,7 @@ end
 
 local function labelSpace(byId, sid)
   local funcs, ctx = readSpaceFrom(byId, sid)
+  if not funcs then return end   -- unreadable this time; better a stale name than "—"
   labelCache[sid] = detectLabel(funcs, ctx)
   lastGather[sid] = funcs
 end
@@ -562,8 +592,8 @@ local function claudeStateFor(label)
 end
 
 local function screenEntries(screen)
-  local spaces = hs.spaces.spacesForScreen(screen) or {}
-  local active = hs.spaces.activeSpaceOnScreen(screen)
+  local spaces = safeSpacesForScreen(screen)
+  local active = safeActiveSpace(screen)
   local entries = {}
   for i, sid in ipairs(spaces) do
     local label = overrides[sid] or labelCache[sid] or "…"
@@ -737,7 +767,7 @@ end
 
 function M.nameCurrent()
   local scr = hs.mouse.getCurrentScreen() or hs.screen.mainScreen()
-  local sid = hs.spaces.activeSpaceOnScreen(scr)
+  local sid = safeActiveSpace(scr)
   if not sid then hs.alert.show("Couldn't identify the current Desktop"); return end
   local cur = overrides[sid] or labelCache[sid] or ""
   local btn, txt = hs.dialog.textPrompt(
@@ -756,10 +786,10 @@ function M.scanAll()
   scanningAll = true
   loadRepos()                    -- an explicit ⌘⌃⌥S always re-reads the repo list
   local start = {}
-  for _, s in ipairs(hs.screen.allScreens()) do start[s] = hs.spaces.activeSpaceOnScreen(s) end
+  for _, s in ipairs(hs.screen.allScreens()) do start[s] = safeActiveSpace(s) end
   local queue = {}
   for _, s in ipairs(hs.screen.allScreens()) do
-    for i, sid in ipairs(hs.spaces.spacesForScreen(s) or {}) do
+    for i, sid in ipairs(safeSpacesForScreen(s)) do
       queue[#queue + 1] = { sid = sid, name = string.format("%s Desktop %d", s:name() or "Screen", i) }
     end
   end
@@ -768,8 +798,8 @@ function M.scanAll()
     k = k + 1
     if k > #queue then
       for _, sid in pairs(start) do if sid then pcall(hs.spaces.gotoSpace, sid) end end
-      hs.timer.doAfter(0.35, function()
-        scanningAll = false; M.status = nil; scanActive(); draw()
+      scanTimer = hs.timer.doAfter(0.35, function()
+        scanningAll = false; M.status = nil; pcall(scanActive); draw()
       end)
       return
     end
@@ -777,7 +807,13 @@ function M.scanAll()
     M.status = string.format("Reading %s (%d/%d)…", item.name, k, #queue)
     draw()
     pcall(hs.spaces.gotoSpace, item.sid)
-    hs.timer.doAfter(M.scanDwell, function() labelSpace(snapshot(), item.sid); draw(); step() end)
+    -- step() MUST run even if reading this Desktop blows up. Without the pcall
+    -- one failed read killed the timer callback, and the walk simply stopped
+    -- wherever it happened to be — the reported "it stops on Retina #9".
+    scanTimer = hs.timer.doAfter(M.scanDwell, function()
+      pcall(function() labelSpace(snapshot(), item.sid); draw() end)
+      step()
+    end)
   end
   step()
 end
@@ -787,7 +823,7 @@ function M.saveLayout()
   local state = { savedAt = os.time(), screens = {} }
   for _, s in ipairs(hs.screen.allScreens()) do
     local key    = s:getUUID() or s:name() or "screen"
-    local spaces = hs.spaces.spacesForScreen(s) or {}
+    local spaces = safeSpacesForScreen(s)
     local desktops = {}
     for i, sid in ipairs(spaces) do
       local windows = {}
@@ -810,7 +846,7 @@ local function restoreNames()
   for _, s in ipairs(hs.screen.allScreens()) do
     local saved = state.screens[s:getUUID() or s:name() or "screen"]
     if saved and saved.desktops then
-      local spaces = hs.spaces.spacesForScreen(s) or {}
+      local spaces = safeSpacesForScreen(s)
       for i, sid in ipairs(spaces) do
         local d = saved.desktops[i]
         if d and d.name and d.name ~= "" then
@@ -841,7 +877,7 @@ function M.restoreLayout()
   local toCreate, moved = {}, 0
   for _, s in ipairs(hs.screen.allScreens()) do
     local saved  = state.screens[s:getUUID() or s:name() or "screen"]
-    local spaces = hs.spaces.spacesForScreen(s) or {}
+    local spaces = safeSpacesForScreen(s)
     if saved and saved.desktops then
       for i, sid in ipairs(spaces) do
         local d = saved.desktops[i]
