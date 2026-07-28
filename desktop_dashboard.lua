@@ -45,7 +45,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v28 (green clears when you look at the session, 2026-07-28)"
+M.version = "v29 (session summary on its own indented line, 2026-07-28)"
 
 -- ============================ CONFIG ============================
 
@@ -185,9 +185,12 @@ M.categoryPatterns = {
 -- ⌘⌃⌥M cycles through them.
 M.mode            = "desktops"
 M.sessionHeader   = "Claude sessions:"
-M.sessionSummaryChars = 32      -- task summary shown after the project name; the
-                                -- summary is what tells two sessions in the same
-                                -- repo apart, so it is worth the width
+-- The task summary is what tells two sessions in the same repo apart, so it
+-- earns its place — but on one line it dictates the panel's width. Giving it
+-- its own indented line means the width is set by the project name instead.
+M.sessionTwoLine      = true
+M.sessionSummaryChars = 20      -- characters of summary shown
+M.sessionSummaryIndent = 5      -- indent past the start of the project name
 M.modeHotkey      = { mods = {"cmd","ctrl","alt"}, key = "m" }
 
 -- Drag the panel with the mouse. A position you drag to is remembered per
@@ -757,15 +760,34 @@ local function sessionEntries()
     end
     local dot = state and (M.claudeDotChar or "●") or " "
     local summary = tostring(s.summary or "")
-    local lim = M.sessionSummaryChars or 32
+    local lim = M.sessionSummaryChars or 20
     if uwidth(summary) > lim then summary = summary:sub(1, lim) .. "…" end
-    local prefix = string.format("   T%d ", i)
-    local suffix = string.format(" %s%s", s.project or "?",
-                                 summary ~= "" and ("  " .. summary) or "")
-    entries[#entries + 1] = {
-      sid = nil, wid = s.wid, state = state, dot = dot,
-      prefix = prefix, suffix = suffix, text = prefix .. dot .. suffix,
-    }
+    local prefix  = string.format("   T%d ", i)
+    local project = " " .. (s.project or "?")
+
+    if M.sessionTwoLine then
+      entries[#entries + 1] = {
+        wid = s.wid, state = state, dot = dot,
+        prefix = prefix, suffix = project, text = prefix .. dot .. project,
+      }
+      if summary ~= "" then
+        -- Indented past where the project name starts, and dimmed, so the pair
+        -- reads as one item rather than two. Carries the same window id, so
+        -- either line can be clicked.
+        local indent = string.rep(" ", uwidth(prefix) + 1 + (M.sessionSummaryIndent or 5))
+        local line2  = indent .. summary
+        entries[#entries + 1] = {
+          wid = s.wid, state = nil, dot = " ", dim = true,
+          prefix = line2, suffix = "", text = line2,
+        }
+      end
+    else
+      local suffix = project .. (summary ~= "" and ("  " .. summary) or "")
+      entries[#entries + 1] = {
+        wid = s.wid, state = state, dot = dot,
+        prefix = prefix, suffix = suffix, text = prefix .. dot .. suffix,
+      }
+    end
   end
   if #entries == 0 then
     local msg = "   (no claude sessions found)"
@@ -898,6 +920,7 @@ end
 function M.cycleMode()
   local order = { desktops = "terminals", terminals = "both", both = "desktops" }
   M.mode = order[M.mode] or "desktops"
+  pcall(M.saveLayout)
   pcall(scanActive)
   draw()
   hs.alert.show("Dashboard: " .. M.mode)
@@ -1013,7 +1036,9 @@ draw = function()
         cv:appendElements({
           type = "text", text = body,
           textFont = "Menlo", textSize = M.fontSize,
-          textColor = { white = 1, alpha = 1 },
+          -- Continuation lines (a session's task summary) are dimmed so the
+          -- pair reads as one item.
+          textColor = e.dim and { white = 0.62, alpha = 1 } or { white = 1, alpha = 1 },
           frame = { x = pad, y = cy, w = panelW - pad * 2, h = lineH },
           trackMouseUp = true, trackMouseDown = true,
           id = e.sid and ("go:" .. tostring(e.sid))
@@ -1160,14 +1185,19 @@ function M.scanAll()
 end
 
 function M.saveLayout()
-  if next(lastGather) == nil then return end
+  -- No early return on an empty lastGather any more. That guard existed to stop
+  -- a blank layout being written before the first scan, but this file now also
+  -- carries the chosen mode and the panel position, which have nothing to do
+  -- with window lists — and the guard silently discarded both. Writing an empty
+  -- layout is no longer a risk either: unread Desktops carry their previous
+  -- window lists forward (see below).
   -- Previously saved layout. We only hold window lists for Desktops read since
   -- the last reload (macOS won't let us read a Space we aren't viewing), and
   -- this rewrites every Desktop — so without carrying the old lists forward,
   -- each autosave blanked every Desktop not visited this session. Measured:
   -- 6 of 12 Desktops had been emptied that way.
   local prev = loadState()
-  local state = { savedAt = os.time(), screens = {} }
+  local state = { savedAt = os.time(), mode = M.mode, screens = {} }
   for _, s in ipairs(hs.screen.allScreens()) do
     local key    = s:getUUID() or s:name() or "screen"
     local spaces = safeSpacesForScreen(s)
@@ -1197,7 +1227,14 @@ end
 
 local function restoreNames()
   local state = loadState()
-  if not (state and state.screens) then return end
+  if not state then return end
+  -- The view you chose should survive a reload; it used to snap back to the
+  -- M.mode default every time.
+  if type(state.mode) == "string" and
+     (state.mode == "desktops" or state.mode == "terminals" or state.mode == "both") then
+    M.mode = state.mode
+  end
+  if not state.screens then return end
   for _, s in ipairs(hs.screen.allScreens()) do
     local key   = s:getUUID() or s:name() or "screen"
     local saved = state.screens[key]

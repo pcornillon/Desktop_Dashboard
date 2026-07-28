@@ -146,10 +146,20 @@ wherever their windows happen to be:
 
 ```
 Claude sessions:
-   T1   three-way_SST_error_analysis_manuscript  Review status and continue asymm…
-   T2 ● opendap-registry                         Implement Phase 2 fingerprinting…
-   T3 ● MODIS_L2_Manuscript                      Claude Code
+   T1   three-way_SST_error_analysis_manuscript
+            Review status and co…
+   T2 ● opendap-registry
+            Implement Phase 2 fi…
+   T3 ● MODIS_L2_Manuscript
+            Claude Code
 ```
+
+The dimmed second line is that session's **task summary** — Claude Code's own short
+description of what it's working on, which it writes into the terminal window title. A
+session that hasn't earned one yet reads `Claude Code`. It sits on its own line so the
+panel's width is set by the project name rather than by the summary; `M.sessionTwoLine`,
+`M.sessionSummaryChars` and `M.sessionSummaryIndent` control it, and either line can be
+clicked.
 
 Sessions are found automatically — nothing to register. They're numbered in the order
 their terminal windows were created, so T1/T2/T3 stay put as sessions come and go. The
