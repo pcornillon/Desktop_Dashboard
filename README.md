@@ -65,10 +65,12 @@ Full steps in **[INSTALL.md](INSTALL.md)** — install Hammerspoon, grant Access
 the loader line to `~/.hammerspoon/init.lua`, Reload Config, press ⌘⌃⌥S once.
 
 The **red** dot needs one extra, optional step: letting Claude Code tell the dashboard when
-it has paused for you. Claude Code can run a short script of your choosing at set moments —
-when it starts working, when it stops to ask you something, and when it finishes. (These
-are called *hooks*; you don't need to write one, INSTALL.md has the four lines to copy.)
-Everything except the red dot works without this.
+it has paused for you. Claude Code can be told to run a script automatically at set moments.
+The script ships with this tool (`claude-dashboard-state.sh`) and the moments are already
+chosen — when a session starts working, stops to ask you something, or finishes. Setting it
+up is copying four entries into your Claude Code settings file; there is nothing to write
+and nothing to decide. (Those entries are what Claude Code calls *hooks*.) Everything except
+the red dot works without this.
 
 INSTALL.md also has a **[test prompt](INSTALL.md#testing)** you can paste into a session to
 watch all three colors happen on cue.
