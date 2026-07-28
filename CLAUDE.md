@@ -137,6 +137,16 @@ claude session (terminals), and everything else contributes normally.
   answering a question turns the dot yellow again without waiting on any hook. Hooks are
   optional — without them the dot degrades to yellow/green, never red. Do not try to
   recover red from the title; that was measured and it is not there.
+- **`Notification` fires for two different things; only one is a question.** Claude Code
+  also sends an idle "waiting for your input" nudge roughly a minute AFTER a turn ends.
+  Taking that at face value turned every finished session red as soon as you looked away
+  long enough — observed 2026-07-28: a Desktop went green on completion and then red when
+  the user came back to it. `claude-dashboard-state.sh` distinguishes them **by ordering,
+  not by message text**: a real question or permission prompt can only occur mid-turn, so
+  the last recorded state is `working`; a nudge can only occur after `Stop`, when the last
+  state is `done`. A `waiting` write arriving on top of `done` is therefore dropped.
+  Message wording is not a stable contract — do not branch on it. The payload's `message`
+  is recorded in the state file for diagnosis only.
 - **Stale hook files age out.** A session killed without `SessionEnd` leaves its file
   behind, and a stale `waiting` would pin a Desktop red forever;
   `M.claudeHookMaxAgeHours` (12 h) bounds it. A second guard is structural: the dot only

@@ -55,14 +55,34 @@ fi
 
 mkdir -p "$dir" 2>/dev/null || exit 0
 
+# Notification fires for two different things, and only one of them is a
+# question: Claude Code also sends an idle "waiting for your input" nudge about
+# a minute AFTER a turn ends. Treating that as a question turned every finished
+# session red once you looked away long enough.
+#
+# Distinguish by ordering rather than by message text, which is not a stable
+# contract. A real question or permission prompt can only happen mid-turn,
+# between UserPromptSubmit and Stop — so the last state recorded is "working".
+# A nudge can only happen after Stop, when the last state is "done".
+if [ "$state" = "waiting" ] && command -v jq >/dev/null 2>&1; then
+  prev="$(jq -r '.state // empty' "$dir/$sid.json" 2>/dev/null || true)"
+  if [ "$prev" = "done" ]; then
+    exit 0
+  fi
+fi
+
 # Build with jq so a path containing quotes cannot produce invalid JSON.
 if command -v jq >/dev/null 2>&1; then
+  # `message` is recorded only for diagnosis — nothing branches on it.
+  msg=""
+  [ -n "$payload" ] && msg="$(printf '%s' "$payload" | jq -r '.message // empty' 2>/dev/null || true)"
   jq -n \
     --arg state "$state" \
     --arg cwd "$cwd" \
     --arg repo "$(basename "$cwd")" \
+    --arg msg "$msg" \
     --argjson at "$(date +%s)" \
-    '{state:$state, cwd:$cwd, repo:$repo, at:$at}' \
+    '{state:$state, cwd:$cwd, repo:$repo, at:$at, message:$msg}' \
     > "$dir/$sid.json" 2>/dev/null || true
 fi
 
