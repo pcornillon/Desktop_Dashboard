@@ -2,9 +2,15 @@
 
 **A macOS status panel for running several Claude Code sessions at once.**
 
-If you keep one Desktop (Space) per project, this tells you at a glance which project each
-Desktop belongs to and — the point of the whole thing — **what every `claude` session on
-your machine is doing right now**, including the ones you can't see:
+It answers one question at a glance: **what is every `claude` session on this machine doing
+right now** — including the ones on Desktops you can't see. With four or five sessions
+running, you otherwise have to visit each in turn to find the one that stopped to ask you
+something.
+
+It works whichever way you organise things. **⌘⌃⌥M** switches between two views, or shows
+both at once.
+
+**Desktops** — one line per Space, labelled by the repo or app on it:
 
 ```
 Built-in Retina Display:
@@ -17,17 +23,27 @@ Built-in Retina Display:
 iMac:
     Desktop 1   → Claude Chat/Cowork
 ─────────────────────────────
-⌘⌃⌥  S scan · D hide · N name · R restore
+⌘⌃⌥  S scan · D hide · N name
+     R restore · M mode
 click a line to switch Desktops
 ```
 
-The dots are colored: **yellow** working, **red** waiting on you, **green** finished and
-unseen. Click any line to jump to that Desktop.
+**Sessions** — one line per running session, wherever its window happens to be. For people
+who keep every session on a single Desktop, where listing Desktops says almost nothing:
 
-The problem it solves: with four or five sessions running in different repos on different
-Desktops, you cannot tell which one has stopped to ask you a question without visiting each
-in turn. Everything else the panel does — labeling Desktops by repo, by app, by subject —
-grew out of making that one thing legible.
+```
+Claude sessions:
+   T1   three-way_SST_error_analysis_manuscript
+            Review status and co…
+   T2 ● opendap-registry
+            Implement Phase 2 fi…
+   T3 ● MODIS_L2_Manuscript
+            Claude Code
+```
+
+The dots mean the same in both: **yellow** working, **red** waiting on you, **green**
+finished and you haven't looked yet. Click a line to go there — a Desktop in one view, a
+terminal window in the other. Drag the panel wherever you want it.
 
 Built on [Hammerspoon](https://www.hammerspoon.org). Free, notarized, **no SIP changes**.
 
@@ -47,6 +63,9 @@ instead, visible from every Desktop.
 - **Works for Desktops you aren't looking at.** macOS won't let an app read the windows of
   a Space you're not viewing, but Terminal will report every window's title regardless — so
   session state stays live everywhere, which is exactly where it's useful.
+- **Two views, ⌘⌃⌥M** — list Desktops, list sessions, or both. See
+  [Two views](#two-views-desktops-or-sessions). Sessions are found automatically; nothing
+  to register, and they keep their numbering as others come and go.
 - **Labels a Desktop with the repo you're working in**, so `claude` running in
   `~/Git_Repos/opendap-registry` makes that Desktop read `opendap-registry`.
 
@@ -54,10 +73,12 @@ instead, visible from every Desktop.
 
 - Labels non-project Desktops by **app** (one app → `Mail`), **subject** (several apps
   sharing one → `Communication`), or `Utility` (a mix).
-- **Click a line** to switch to that Desktop.
+- **Click a line** to go there — a Desktop, or a session's terminal window.
+- **Drag the panel** anywhere; each display remembers where you put it.
 - **Auto-refreshes** on window open/close, Desktop switch, and a periodic backstop; the
   session dots poll faster still (~3 s).
 - **Custom names** (⌘⌃⌥N) override auto-detection and are remembered.
+- **Remembers** your view, panel position and Desktop names across reloads and reboots.
 
 ## Install
 
@@ -241,6 +262,13 @@ Everything is in the `CONFIG` block at the top of `desktop_dashboard.lua`. Most 
 need changing:
 
 - `M.repoRoots` — folders whose subdirectories are your repos (default `~/Git_Repos`).
+- `M.mode` — which view the panel opens in: `"desktops"`, `"terminals"` or `"both"`. ⌘⌃⌥M
+  changes it at runtime and the choice is remembered, so this is only the first-run value.
+- `M.sessionTwoLine`, `M.sessionSummaryChars`, `M.sessionSummaryIndent`, `M.sessionHeader`
+  — the sessions view: whether the task summary gets its own indented line, how much of it
+  is shown, how far it's indented, and the section heading in `"both"` mode.
+- `M.draggable`, `M.dragThreshold` — panel dragging, and how far the mouse must move before
+  a press counts as a drag rather than a click. `dd.resetPanelPosition()` re-corners it.
 - `M.showClaudeDot`, `M.claudeDotColors`, `M.claudeDotSeconds`, `M.claudeStateDir` — the
   session dot.
 - `M.claudeOnlyHintApps` / `M.claudeTitleMarker` — terminals whose titles count as a repo
