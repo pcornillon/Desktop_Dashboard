@@ -1,49 +1,70 @@
 # Desktop Dashboard
 
-A small always‑on panel for macOS, powered by [Hammerspoon](https://www.hammerspoon.org),
-that labels each of your Spaces ("Desktops") with the **project** or **subject** of
-its windows and floats the list on every Desktop. Click a line to jump to that Desktop.
+**A macOS status panel for running several Claude Code sessions at once.**
+
+If you keep one Desktop (Space) per project, this tells you at a glance which project each
+Desktop belongs to and — the point of the whole thing — **what every `claude` session on
+your machine is doing right now**, including the ones you can't see:
 
 ```
 Built-in Retina Display:
-    Desktop 1 → Utility
-  ▸ Desktop 2 → Mail
-    Desktop 3 → three-way_SST_error_analysis_manuscript
-    Desktop 4 → opendap-registry
+    Desktop 1   → Utility
+  ▸ Desktop 2   → Communication
+    Desktop 3 ● → three-way_SST_error_analysis_manuscript     ← working
+    Desktop 4 ● → opendap-registry                            ← asking you something
+    Desktop 6 ● → MODIS_L2                                    ← finished, you haven't looked
+    Desktop 7   → SIED
 iMac:
-    Desktop 1 → Browser
+    Desktop 1   → Claude Chat/Cowork
 ─────────────────────────────
 ⌘⌃⌥  S scan · D hide · N name · R restore
 click a line to switch Desktops
 ```
 
-macOS has no supported way to rename a Space's Mission Control label without either
-disabling System Integrity Protection or a paid helper app, so this takes the opposite
-approach: it draws its own overlay showing the same information. Free, no SIP.
+The dots are colored: **yellow** working, **red** waiting on you, **green** finished and
+unseen. Click any line to jump to that Desktop.
+
+The problem it solves: with four or five sessions running in different repos on different
+Desktops, you cannot tell which one has stopped to ask you a question without visiting each
+in turn. Everything else the panel does — labeling Desktops by repo, by app, by subject —
+grew out of making that one thing legible.
+
+Built on [Hammerspoon](https://www.hammerspoon.org). Free, notarized, **no SIP changes**.
+
+## Why an overlay
+
+macOS has no supported way to rename a Space's Mission Control label without disabling
+System Integrity Protection or buying a helper app. So this draws its own always-on panel
+instead, visible from every Desktop.
 
 ## What it does
 
-- **Labels each Desktop** by what's on it:
-  - the **repo** it's focused on, if a window's open file lives under one of your repo
-    roots (e.g. `~/Git_Repos/opendap-registry`), or if a repo name appears in a
-    terminal/Finder title on that Desktop;
-  - otherwise the **app** (a single app → its name, e.g. `Mail`), the **subject**
-    (two or more apps that share one, e.g. `Communication`), or `Utility` (a mix of
-    several subjects).
-- **Ignores Finder and Terminal** when deciding the subject (their titles are still
-  used as repo hints).
+**For Claude sessions**
+
+- **A colored dot per session** — yellow while it computes, red when it's blocked asking
+  you something, green when it finished while you were elsewhere. See
+  [the dot](#the-claude-session-dot).
+- **Works for Desktops you aren't looking at.** macOS won't let an app read the windows of
+  a Space you're not viewing, but Terminal will report every window's title regardless — so
+  session state stays live everywhere, which is exactly where it's useful.
+- **Labels a Desktop with the repo you're working in**, so `claude` running in
+  `~/Git_Repos/opendap-registry` makes that Desktop read `opendap-registry`.
+
+**For everything else**
+
+- Labels non-project Desktops by **app** (one app → `Mail`), **subject** (several apps
+  sharing one → `Communication`), or `Utility` (a mix).
 - **Click a line** to switch to that Desktop.
-- **Auto‑refreshes** when windows open or close, when you switch Desktops, and on a
-  periodic backstop — so opening `CLAUDE.md` on a Desktop relabels it within ~1s.
-- **Custom names** you set are remembered and take priority over auto‑detection.
-- **Saves** names and window layout, and can restore the layout after a reboot.
+- **Auto-refreshes** on window open/close, Desktop switch, and a periodic backstop; the
+  session dots poll faster still (~3 s).
+- **Custom names** (⌘⌃⌥N) override auto-detection and are remembered.
 
 ## Install
 
-Requires [Hammerspoon](https://www.hammerspoon.org) (free, notarized, **no SIP changes**).
-Full steps are in **[INSTALL.md](INSTALL.md)**: install Hammerspoon, grant Accessibility,
-add the loader line to `~/.hammerspoon/init.lua`, Reload Config, then press ⌘⌃⌥S once to
-label every Desktop.
+Full steps in **[INSTALL.md](INSTALL.md)** — install Hammerspoon, grant Accessibility, add
+the loader line to `~/.hammerspoon/init.lua`, Reload Config, press ⌘⌃⌥S once. Add the
+optional hooks if you want the red dot. INSTALL.md also has a **[test prompt](INSTALL.md#testing)**
+you can paste into a session to watch all three colors happen on cue.
 
 ## Controls
 
@@ -55,98 +76,102 @@ label every Desktop.
 | ⌘⌃⌥ R | Restore the saved window layout (move/open windows to match) |
 | ⌘⌃⌥ S | Walk every Desktop once and label them all |
 
-## Configuration
-
-Everything is in the `CONFIG` block at the top of `desktop_dashboard.lua`. The ones you'll
-likely change:
-
-- `M.repoRoots` — folders whose subdirectories are your repos (default `~/Git_Repos`).
-- `M.categories` / `M.categoryPatterns` — app → subject mappings (Mail → Communication, …).
-- `M.docApps` — apps whose open file is read for repo detection. **Keep slow apps
-  (Electron/Office/Java) out of this list** — asking them for a file path can stall.
-- `M.ignoreApps` — apps excluded from the subject decision (Finder, Terminal, …).
-- `M.noRepoHintApps` — apps whose window titles are ignored for repo detection: browsers
-  (a page title such as `pcornillon/Desktop_Dashboard · GitHub`), chat apps (Claude,
-  ChatGPT), and **Finder** (its title is whatever folder you're browsing, which is not
-  the same as what the Desktop is for). They still count toward the Desktop's subject —
-  only their titles are withheld.
-- `M.claudeOnlyHintApps` / `M.claudeTitleMarker` — terminals, whose titles count as a
-  repo hint **only when running claude**. A shell sitting in a repo is weak evidence; a
-  `claude` session in one is the strongest signal there is.
-- `M.appLabels` — display-name overrides for a Desktop holding a **single** app
-  (`Claude` → `Claude Chat/Cowork`). A Desktop with several apps is decided by subject
-  before this is consulted; use ⌘⌃⌥N to name those.
-- `M.repoRescanSeconds` — how often the repo roots are re-listed, so a repo created
-  after Hammerspoon launched is detected without a Reload Config.
-- `M.showClaudeDot`, `M.claudeDotChar`, `M.claudeDotColors`, `M.claudeDotSeconds` — the
-  claude session dot (below).
-- `M.corner`, `M.fontSize`, `M.minWidth`/`M.maxWidth` — appearance.
-- `M.showLegend`, `M.legendLines` — the command legend at the bottom.
-
 ## The claude session dot
 
-A Desktop labeled with a repo that also has a `claude` session running in that repo gets
-a colored dot between the Desktop number and the arrow:
+A Desktop labeled with a repo that also has a `claude` session running in that repo gets a
+colored dot between the Desktop number and the arrow:
 
-```
-▸ Desktop 10 ● → Desktop_Dashboard      yellow — that session is working
-   Desktop 4 ● → opendap-registry        red   — it is asking you something
-   Desktop 6 ● → MODIS_L2                green — it finished and you haven't looked
-   Desktop 7   → SIED                    no dot — nothing to tell you
-```
+| dot | meaning | source |
+|-----|---------|--------|
+| 🟡 yellow | that session is computing | terminal title |
+| 🔴 red | it is asking you something | Claude Code `Notification` hook |
+| 🟢 green | it finished and you haven't looked yet | title + hook |
+| *(none)* | nothing to tell you | — |
 
-Precedence is yellow → red → green. Computing always wins: the moment you answer a
-question the session resumes and the dot goes yellow again.
+Precedence is **yellow → red → green**. Computing always wins: the moment you answer a
+question the session resumes and the dot returns to yellow, without waiting on a hook.
 
-**Green means "finished, unseen" — not merely "idle".** It appears on the working →
-not-working edge, so it marks a prompt that *completed while you were elsewhere*. It
-clears when you visit that Desktop; clicking its line in the panel counts, since that
-switches you there. Re-prompting a session clears it too (it goes yellow again). A
-session that was already sitting idle when the dashboard started shows nothing at all,
-so you don't get a wall of green on login.
+**Green means "finished, unseen", not merely "idle".** It appears on the working →
+not-working edge, so it marks a prompt that *completed while you were elsewhere*. It clears
+when you visit that Desktop — clicking its line counts, since that switches you there — and
+re-prompting the session clears it too. A session already sitting idle when the dashboard
+starts is never flagged, so you don't get a wall of green at login.
 
-**Red requires the hooks** (see INSTALL.md). Without them everything still works, you
-just never see red — a session waiting on you shows green like any other finished one.
-That is not a shortcut: the terminal title is identical in both cases (measured), so
-only Claude Code's own `Notification` hook can tell them apart.
+**Red requires the hooks** (see INSTALL.md). Without them everything else still works; you
+simply never see red, and a session waiting on you shows green like any other finished one.
+That isn't a shortcut. Claude Code stamps the terminal title with an animated Braille
+spinner while computing and `✳` when not — and measured over ~750 one-second samples, a
+session *blocked on a question* shows the same `✳` as one that has *finished*. The title
+says whether work is happening, never why it stopped. Only Claude Code's own `Notification`
+hook can tell those apart.
 
-There is no way to acknowledge by pressing return in the claude window: an empty return
-doesn't change the terminal title, so the dashboard has no way to observe it. Visiting
-the Desktop is the acknowledgement.
+You cannot acknowledge a dot by pressing return in the claude window: an empty return
+doesn't change the terminal title, so there is nothing for the dashboard to observe.
+Visiting the Desktop is the acknowledgement.
 
-**There are only two colors, and that is a limit of the signal, not a shortcut.** Claude
-Code stamps the terminal title with an animated Braille spinner while it computes and
-with `✳` when it does not. Measured over ~750 one-second samples: a session *blocked on a
-question* shows the same `✳` as one that has *finished*. The title says whether work is
-happening, never why it stopped, so "waiting for you" cannot be distinguished from "done"
-and there is no red dot. If that ever changes, `M.claudeDotColors` is where it goes.
+Titles are read from Terminal via AppleScript rather than Accessibility — that's why the dot
+stays live for Desktops you aren't viewing. The read is asynchronous (`hs.task`), so a slow
+or wedged Terminal can't stall the panel. Set `M.showClaudeDot = false` to turn it all off.
 
-Titles are read from Terminal via AppleScript rather than Accessibility, which is why the
-dot stays live for Desktops you are **not** currently viewing — Accessibility can only see
-the Space you are on. The read is asynchronous (`hs.task`), so a slow or wedged Terminal
-cannot stall the panel.
+## How a Desktop gets its label
 
-Set `M.showClaudeDot = false` to turn the whole thing off.
+In order, first match wins:
+
+1. **An open file inside a repo** — for editors in `M.docApps`, the document's path. The
+   path names the repo, so the file is never opened or read.
+2. **A repo name in a window title** — but only from titles that name a *location*. A
+   terminal counts **only when it's running `claude`**; a shell that happens to be `cd`'d
+   somewhere does not. Finder, browsers and chat apps never count: their titles name what
+   you're *browsing* or *discussing*, which is not what the Desktop is *for*.
+3. **Loose token overlap** with a repo name.
+4. **The apps themselves** — one app → its name; several sharing a subject → that subject;
+   several subjects → `Utility`.
+
+## Configuration
+
+Everything is in the `CONFIG` block at the top of `desktop_dashboard.lua`. Most likely to
+need changing:
+
+- `M.repoRoots` — folders whose subdirectories are your repos (default `~/Git_Repos`).
+- `M.showClaudeDot`, `M.claudeDotColors`, `M.claudeDotSeconds`, `M.claudeStateDir` — the
+  session dot.
+- `M.claudeOnlyHintApps` / `M.claudeTitleMarker` — terminals whose titles count as a repo
+  hint only while running claude. Add your terminal if it isn't listed.
+- `M.docApps` — apps asked for their open file's path. **Keep slow apps
+  (Electron/Office/Java) out** — asking them can stall for minutes.
+- `M.noRepoHintApps` — apps whose titles never suggest a repo: browsers, chat apps, Finder.
+- `M.categories` / `M.categoryPatterns` — app → subject mappings.
+- `M.appLabels` — display name for a Desktop holding a **single** app
+  (`Claude` → `Claude Chat/Cowork`).
+- `M.ignoreApps` — apps excluded from the subject decision.
+- `M.repoRescanSeconds` — how often repo roots are re-listed, so a repo created after
+  launch is found without a reload.
+- `M.corner`, `M.fontSize`, `M.minWidth`/`M.maxWidth`, `M.showLegend`, `M.legendLines` —
+  appearance.
 
 ## Sharing across machines / with colleagues
 
-- The code is portable; the **config is per‑machine** — set `M.repoRoots` and adjust
+- The code is portable; the **config is per-machine** — set `M.repoRoots` and adjust
   `M.categories`/`M.docApps` to the apps you actually use.
-- **Do not sync** `~/.hammerspoon/desktop_dashboard_state.json`. It holds this machine's
-  Desktop names and window layout keyed to that machine's Spaces; it is regenerated
-  locally and is intentionally outside the repo.
+- **Do not sync** `~/.hammerspoon/desktop_dashboard_state.json` or `claude_state/`. Both are
+  keyed to one machine's Spaces and sessions, are regenerated locally, and live outside the
+  repo on purpose.
 - Accessibility permission is granted per machine.
 
 ## Limitations
 
-- macOS only lets an app read a window's details while its Desktop is active, so a
-  Desktop is labeled when you visit it (or via ⌘⌃⌥S), not before. There is no
-  SIP‑free way around this.
-- The label shows in this overlay, **not** in the Mission Control thumbnail (that would
-  require SIP‑off Dock injection or a paid app).
-- Dragging a window between Desktops isn't an open/close event, so that case waits for
-  the next Desktop switch or the periodic backstop.
-- Custom names are keyed to a Space's internal ID in‑session and to its position on disk;
-  a full reboot can reset an in‑session custom name until the next save catches up.
+- macOS only lets an app read a window's details while its Desktop is active, so a Desktop
+  is labeled when you first visit it (or via ⌘⌃⌥S), not before. There's no SIP-free way
+  around this. **Session dots are the exception** — they come from Terminal's AppleScript,
+  which sees every Space.
+- Session dots currently require **Terminal.app**; other terminals are labeled but get no
+  dot.
+- The label shows in this overlay, **not** in the Mission Control thumbnail.
+- Dragging a window between Desktops isn't an open/close event, so that case waits for the
+  next Desktop switch or the periodic backstop.
+- ⌘⌃⌥R (restore layout) is **manual and partial**: it can only move windows that are on a
+  currently-visible Desktop, and can only reopen windows that have a document path. It will
+  not reassemble a scattered post-reboot layout. For apps that always belong in one place,
+  macOS's own Dock → Options → **Assign To** is more reliable.
 
-See `CLAUDE.md` for the design decisions and why they were made.
+See `CLAUDE.md` for the design decisions and the measurements behind them.

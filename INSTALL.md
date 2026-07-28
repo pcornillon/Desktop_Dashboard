@@ -103,6 +103,66 @@ settings across machines.
 Press **⌘⌃⌥S** once to walk every Desktop and label them all. After that it keeps itself
 up to date on its own.
 
+## Testing
+
+A scripted way to watch all three dot colors happen on cue.
+
+**Set up:** open a terminal on a Desktop of its own, `cd` into a repo under your
+`M.repoRoots`, and start `claude` there. Confirm that Desktop's line shows the repo name.
+Then **switch to a different Desktop** and keep the panel in view — the point is watching a
+session you can't see. Paste the prompt below into that session.
+
+````text
+I am testing a status dashboard that watches Claude Code sessions. This is a scripted
+rehearsal, not real work.
+
+Follow these steps exactly, in order. Do nothing else: no file reads, no searches, no
+extra commands, no summarising between steps.
+
+STEP 1 — wait 30 seconds by running exactly this, and let it finish:
+    for i in $(seq 1 30); do /bin/sleep 1; done
+
+STEP 2 — ask me a single multiple-choice question using your question tool. The subject
+does not matter; my answer does not matter. Wait for my answer.
+
+STEP 3 — wait 30 seconds again by running exactly this:
+    for i in $(seq 1 30); do /bin/sleep 1; done
+
+STEP 4 — run exactly this command, which is meant to require my approval:
+    touch /tmp/dashboard-test.txt && rm /tmp/dashboard-test.txt
+If it runs without asking my permission, tell me so and stop.
+
+STEP 5 — wait 20 seconds by running exactly this:
+    for i in $(seq 1 20); do /bin/sleep 1; done
+
+Then reply with exactly: done
+
+The waits are the thing being measured, so do not shorten or skip them.
+````
+
+**What you should see on that Desktop's line:**
+
+| when | dot |
+|------|-----|
+| Step 1, during the wait | 🟡 yellow — computing |
+| Step 2, question on screen | 🔴 red — waiting on you |
+| after you answer | 🟡 yellow — resumed |
+| Step 4, permission prompt | 🔴 red — waiting on you |
+| after you approve or deny | 🟡 yellow — resumed |
+| after `done` | 🟢 green — finished, unseen |
+| when you switch to that Desktop | *(no dot)* — acknowledged |
+
+Notes:
+
+- **Steps 2 and 4 test different things.** A question box and a permission prompt are
+  separate mechanisms; both should turn the dot red.
+- **Step 4 assumes `rm` needs approval on your setup.** If your `permissions` settings
+  auto-allow it, substitute any command yours does ask about.
+- **Red only appears if the hooks are installed** (previous section). Without them steps 2
+  and 4 show green instead of red; everything else is the same.
+- If the dot never appears at all, the Desktop probably isn't labeled with the repo name —
+  press ⌘⌃⌥S and check the line reads the repo, not `Utility` or an app name.
+
 ## Configuration
 
 Everything is in the `CONFIG` block at the top of `desktop_dashboard.lua`. On a new machine
