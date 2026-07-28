@@ -77,8 +77,14 @@ watch all three colors happen on cue.
 
 ### Let Claude Code install it
 
-Since you're presumably already running Claude Code, it can do most of this. Clone the repo,
-start `claude` in it, and paste:
+Since you're presumably already running Claude Code, it can do most of this. Clone the repo
+wherever you keep your projects — from that folder:
+
+```sh
+git clone https://github.com/pcornillon/Desktop_Dashboard.git
+```
+
+Then start `claude` inside the new `Desktop_Dashboard` folder and paste:
 
 ````text
 Install this tool on my Mac by following INSTALL.md in this repo.

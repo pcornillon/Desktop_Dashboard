@@ -33,18 +33,23 @@ screen to confirm the panel appeared (step 5). Everything else can be done for y
    The reliable test is step 5: without this permission the panel still loads and lists your
    Desktops, but every label comes out blank or `—`.
 
-3. **Clone the repo** wherever you keep your projects:
+3. **Clone the repo** — put it wherever you keep your projects. From that folder:
 
    ```sh
-   mkdir -p ~/Git_Repos
-   cd ~/Git_Repos
    git clone https://github.com/pcornillon/Desktop_Dashboard.git
    ```
 
-   `git clone` creates the `Desktop_Dashboard` folder for you, so there's no need to name a
-   destination. Put it anywhere you like — but note the loader line in step 4 has to point
-   at wherever you put it, and the default `M.repoRoots` setting expects your repos to live
-   under `~/Git_Repos`. Using that location means both work unchanged.
+   `git clone` creates the `Desktop_Dashboard` folder itself, so there's no destination to
+   name.
+
+   Note where you put it, because two later things refer to that location:
+
+   - the loader line in step 4 must point at it;
+   - `M.repoRoots` — the setting telling the dashboard where your repos live — defaults to
+     `~/Git_Repos`.
+
+   If that happens to be where you keep repos, both work unmodified. Anywhere else is fine
+   too; it's one line to change in each.
 
 4. **Point Hammerspoon at it.** Hammerspoon only loads Lua from `~/.hammerspoon/`, so add
    these lines to `~/.hammerspoon/init.lua` (create the file if it doesn't exist) to load
