@@ -62,9 +62,16 @@ instead, visible from every Desktop.
 ## Install
 
 Full steps in **[INSTALL.md](INSTALL.md)** — install Hammerspoon, grant Accessibility, add
-the loader line to `~/.hammerspoon/init.lua`, Reload Config, press ⌘⌃⌥S once. Add the
-optional hooks if you want the red dot. INSTALL.md also has a **[test prompt](INSTALL.md#testing)**
-you can paste into a session to watch all three colors happen on cue.
+the loader line to `~/.hammerspoon/init.lua`, Reload Config, press ⌘⌃⌥S once.
+
+The **red** dot needs one extra, optional step: letting Claude Code tell the dashboard when
+it has paused for you. Claude Code can run a short script of your choosing at set moments —
+when it starts working, when it stops to ask you something, and when it finishes. (These
+are called *hooks*; you don't need to write one, INSTALL.md has the four lines to copy.)
+Everything except the red dot works without this.
+
+INSTALL.md also has a **[test prompt](INSTALL.md#testing)** you can paste into a session to
+watch all three colors happen on cue.
 
 ## Controls
 
@@ -72,24 +79,31 @@ you can paste into a session to watch all three colors happen on cue.
 |----------|--------|
 | Click a line | Switch to that Desktop |
 | ⌘⌃⌥ D | Show / hide the dashboard |
-| ⌘⌃⌥ N | Name the current Desktop (blank input clears it, back to auto) |
+| ⌘⌃⌥ N | Name the current Desktop yourself |
 | ⌘⌃⌥ R | Restore the saved window layout (move/open windows to match) |
-| ⌘⌃⌥ S | Walk every Desktop once and label them all |
+| ⌘⌃⌥ S | Visit every Desktop once and label the ones you haven't named |
+
+**A name you type yourself sticks.** It beats whatever the dashboard would have worked
+out, and ⌘⌃⌥S will not overwrite it — that's the point of setting one. To go back to
+automatic labeling, press ⌘⌃⌥N on that Desktop again and submit an **empty** name.
+
+Behind the scenes a scan still works out the automatic label for a Desktop you've named,
+it just doesn't show it. So clearing your name reveals a current label, not a stale one.
 
 ## The claude session dot
 
 A Desktop labeled with a repo that also has a `claude` session running in that repo gets a
 colored dot between the Desktop number and the arrow:
 
-| dot | meaning | source |
-|-----|---------|--------|
-| 🟡 yellow | that session is computing | terminal title |
-| 🔴 red | it is asking you something | Claude Code `Notification` hook |
-| 🟢 green | it finished and you haven't looked yet | title + hook |
+| dot | meaning | needs the extra setup? |
+|-----|---------|------------------------|
+| 🟡 yellow | that session is working | no |
+| 🔴 red | it has stopped to ask you something | **yes** |
+| 🟢 green | it finished and you haven't looked yet | no |
 | *(none)* | nothing to tell you | — |
 
-Precedence is **yellow → red → green**. Computing always wins: the moment you answer a
-question the session resumes and the dot returns to yellow, without waiting on a hook.
+Order of priority is **yellow → red → green**. Working always wins, so the instant you
+answer a question the dot goes straight back to yellow.
 
 **Green means "finished, unseen", not merely "idle".** It appears on the working →
 not-working edge, so it marks a prompt that *completed while you were elsewhere*. It clears
@@ -97,21 +111,27 @@ when you visit that Desktop — clicking its line counts, since that switches yo
 re-prompting the session clears it too. A session already sitting idle when the dashboard
 starts is never flagged, so you don't get a wall of green at login.
 
-**Red requires the hooks** (see INSTALL.md). Without them everything else still works; you
-simply never see red, and a session waiting on you shows green like any other finished one.
-That isn't a shortcut. Claude Code stamps the terminal title with an animated Braille
-spinner while computing and `✳` when not — and measured over ~750 one-second samples, a
-session *blocked on a question* shows the same `✳` as one that has *finished*. The title
-says whether work is happening, never why it stopped. Only Claude Code's own `Notification`
-hook can tell those apart.
+**Red needs the extra setup in INSTALL.md.** Without it everything else still works — you
+simply never see red, and a session waiting on you looks the same as one that has finished.
 
-You cannot acknowledge a dot by pressing return in the claude window: an empty return
-doesn't change the terminal title, so there is nothing for the dashboard to observe.
-Visiting the Desktop is the acknowledgement.
+Why it needs help is worth knowing, because it explains what the dashboard can and can't
+see. To tell whether a session is busy, it reads the session's **terminal window title**,
+which Claude Code keeps updated as it goes. Asking Terminal for its window titles works for
+*every* Desktop, which is why the dots stay accurate for Desktops you aren't looking at —
+macOS otherwise only lets an app inspect windows on the Desktop you're currently viewing.
 
-Titles are read from Terminal via AppleScript rather than Accessibility — that's why the dot
-stays live for Desktops you aren't viewing. The read is asynchronous (`hs.task`), so a slow
-or wedged Terminal can't stall the panel. Set `M.showClaudeDot = false` to turn it all off.
+That title reliably distinguishes *working* from *not working*. What it cannot tell you is
+**why** a session stopped: one that has finished and one sitting there waiting for you to
+answer a question look exactly alike. That isn't a guess — I sampled it about 750 times to
+be certain. So the only way to know the difference is for Claude Code to say so itself, and
+that is all the extra setup does: it has Claude Code run a short script whenever a session
+pauses for your attention, finishes, or starts working again.
+
+You can't acknowledge a dot by pressing return in the claude window — that changes nothing
+the dashboard can see. Visiting the Desktop is the acknowledgement.
+
+The title check runs in the background, so a slow or unresponsive Terminal can never freeze
+the panel. Set `M.showClaudeDot = false` to turn the dots off entirely.
 
 ## How a Desktop gets its label
 
@@ -162,8 +182,8 @@ need changing:
 
 - macOS only lets an app read a window's details while its Desktop is active, so a Desktop
   is labeled when you first visit it (or via ⌘⌃⌥S), not before. There's no SIP-free way
-  around this. **Session dots are the exception** — they come from Terminal's AppleScript,
-  which sees every Space.
+  around this. **Session dots are the exception** — they come from asking Terminal for its
+  window titles, which reports every Desktop, not just the visible one.
 - Session dots currently require **Terminal.app**; other terminals are labeled but get no
   dot.
 - The label shows in this overlay, **not** in the Mission Control thumbnail.
