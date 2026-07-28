@@ -75,6 +75,35 @@ the red dot works without this.
 INSTALL.md also has a **[test prompt](INSTALL.md#testing)** you can paste into a session to
 watch all three colors happen on cue.
 
+### Let Claude Code install it
+
+Since you're presumably already running Claude Code, it can do most of this. Clone the repo,
+start `claude` in it, and paste:
+
+````text
+Install this tool on my Mac by following INSTALL.md in this repo.
+
+Do the steps you can do from a shell. Two steps are mine, not yours — stop and ask me
+when you reach each one:
+  - granting Hammerspoon Accessibility permission (macOS won't let software grant it)
+  - confirming the panel actually appeared on my screen
+
+Two files may already exist and may contain things I care about. Back both up first,
+show me what you intend to change, and ADD to them — never overwrite:
+  - ~/.hammerspoon/init.lua
+  - ~/.claude/settings.json  (only if I say I want the red dot; merge the four entries
+    into any existing "hooks" object rather than replacing it)
+
+If `brew` asks for my password, stop and tell me rather than trying to work around it.
+
+When you're done, tell me the version string Hammerspoon printed to its Console.
+````
+
+**What it can't do, and why:** granting Accessibility is blocked by macOS by design, and
+confirming the panel appeared needs eyes on the screen — a screenshot taken from a shell
+can't see the overlay without Screen Recording permission. Everything else, including
+restarting Hammerspoon to load the config, works from a shell.
+
 ## Controls
 
 | Shortcut | Action |

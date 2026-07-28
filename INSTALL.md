@@ -1,8 +1,12 @@
 # Installing Desktop Dashboard
 
 How to install and run Desktop Dashboard on a machine. Do this on each Mac where you want
-it (yours or a colleague's). It's separate from `MOVING.md`, which is the one‑time job of
-turning this into a repo.
+it (yours or a colleague's).
+
+**Two of these steps a person has to do**, because macOS won't let software grant itself
+permissions or click menu-bar items: granting Accessibility (step 2), and looking at the
+screen to confirm the panel appeared (step 5). Everything else can be done for you — see
+*[Let Claude Code install it](README.md#let-claude-code-install-it)*.
 
 ## Requirements
 
@@ -20,16 +24,27 @@ turning this into a repo.
 
    (or download from https://www.hammerspoon.org). Launch it once.
 
-2. **Grant Accessibility permission** when prompted — this is what lets the tool read
-   window titles and files. System Settings → Privacy & Security → Accessibility → enable
-   **Hammerspoon**. This is a normal per‑app permission (the same one Rectangle, Moom, etc.
-   use); it is *not* related to disabling SIP.
+2. **Grant Accessibility permission** — 🧑 **you must do this yourself.** macOS deliberately
+   prevents software from granting this on its own. System Settings → Privacy & Security →
+   Accessibility → enable **Hammerspoon**. This is what lets the tool read window titles; it
+   is a normal per‑app permission (the same one Rectangle, Moom, etc. use) and is *not*
+   related to disabling SIP.
 
-3. **Get the repo onto this machine** wherever you keep your projects, e.g.
+   The reliable test is step 5: without this permission the panel still loads and lists your
+   Desktops, but every label comes out blank or `—`.
+
+3. **Clone the repo** wherever you keep your projects:
 
    ```sh
-   git clone <your-remote> ~/Git_Repos/Desktop_Dashboard
+   mkdir -p ~/Git_Repos
+   cd ~/Git_Repos
+   git clone https://github.com/pcornillon/Desktop_Dashboard.git
    ```
+
+   `git clone` creates the `Desktop_Dashboard` folder for you, so there's no need to name a
+   destination. Put it anywhere you like — but note the loader line in step 4 has to point
+   at wherever you put it, and the default `M.repoRoots` setting expects your repos to live
+   under `~/Git_Repos`. Using that location means both work unchanged.
 
 4. **Point Hammerspoon at it.** Hammerspoon only loads Lua from `~/.hammerspoon/`, so add
    these lines to `~/.hammerspoon/init.lua` (create the file if it doesn't exist) to load
@@ -51,6 +66,9 @@ turning this into a repo.
 
    and then just `local dd = require("desktop_dashboard"); dd.start()`.
 
+   > **If `~/.hammerspoon/init.lua` already exists, add to it — don't replace it.** It may
+   > hold unrelated Hammerspoon config you'd lose.
+
    > If an older copy already sits at `~/.hammerspoon/desktop_dashboard.lua`, remove it so
    > there's a single source of truth — otherwise `require` loads that stale copy instead
    > of the repo.
@@ -58,6 +76,18 @@ turning this into a repo.
 5. **Reload and verify.** Click the Hammerspoon menu‑bar icon (the hammer) → **Reload
    Config**. You should see `desktop_dashboard vNN … loaded` in the Hammerspoon Console and
    the panel appear in a corner.
+
+   No menu bar available (installing over SSH, or having Claude do it)? Restart Hammerspoon
+   from a shell instead — same effect:
+
+   ```sh
+   osascript -e 'quit app "Hammerspoon"'; /bin/sleep 3; open -a Hammerspoon
+   ```
+
+   (`/bin/sleep` rather than plain `sleep` — some agent setups block the latter.)
+
+   🧑 **Confirming the panel actually appeared is yours to do** — it's an on-screen overlay,
+   and screenshots taken from a shell can't see it without Screen Recording permission.
 
 ## Optional: the red dot (Claude Code hooks)
 
@@ -72,8 +102,11 @@ exactly the same thing in its terminal title as one that has finished.
    chmod +x ~/.claude/claude-dashboard-state.sh
    ```
 
-2. Register it on four events in `~/.claude/settings.json`. **Merge** with any hooks you
-   already have — append to an existing event's `hooks` array rather than replacing it:
+2. Register it on four events in `~/.claude/settings.json`. **Merge — never replace this
+   file.** It holds your permissions and any hooks you already run; appending to an existing
+   event's `hooks` array is the whole job. Back it up first. (`~/.claude/settings.json` is
+   often a symlink to somewhere like Dropbox, in which case your edit syncs to your other
+   machines — harmless here, since the script does nothing on a Mac without Hammerspoon.)
 
    ```json
    {
