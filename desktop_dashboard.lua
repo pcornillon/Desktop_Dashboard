@@ -45,7 +45,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v30 (renamed Desktops keep their session dot, 2026-07-29)"
+M.version = "v31 (a claude session outside a repo still counts, 2026-07-29)"
 
 -- ============================ CONFIG ============================
 
@@ -344,6 +344,19 @@ end
 -- Terminal's own window `id` is what makes per-session identity possible: it is
 -- stable for the life of the window and unique even when two windows sit in the
 -- same directory, which a repo name cannot distinguish.
+-- If this window title belongs to a claude session, return its working
+-- directory name. Terminal builds titles as: cwd — <spinner + task> — process
+-- — WxH, so a real session has all four parts and names claude as the process.
+local function claudeCwdFromTitle(title)
+  local comps = {}
+  for part in (tostring(title or "") .. " — "):gmatch("(.-) — ") do comps[#comps + 1] = part end
+  local proc = comps[#comps - 1]
+  if #comps >= 4 and proc and proc:lower():find("claude", 1, true) then
+    return comps[1], comps[2] or ""
+  end
+  return nil
+end
+
 local function parseClaudeTitles(text)
   local byRepo, sessions, frontId = {}, {}, nil
   for line in tostring(text or ""):gmatch("[^\r\n]+") do
@@ -351,16 +364,9 @@ local function parseClaudeTitles(text)
     if fid then frontId = tonumber(fid) end
     local wid, title = line:match("^(%d+)|(.*)$")
     if not title then title = line end            -- tolerate an id-less read
-    -- Terminal builds its title from parts: cwd — <spinner + task> — process — WxH
-    local comps = {}
-    for part in (title .. " — "):gmatch("(.-) — ") do comps[#comps + 1] = part end
-    -- A real session has all four parts AND names claude as the running process.
-    -- Matching "claude" anywhere in the title also caught a plain shell sitting
-    -- in a directory called .claude, which it did.
-    local proc = comps[#comps - 1]
-    if #comps >= 4 and proc and proc:lower():find("claude", 1, true) then
-      local cwd  = comps[1]
-      local body = comps[2] or ""
+    local cwd, body = claudeCwdFromTitle(title)
+    if cwd then
+      body = body or ""
       local glyph = body:match("^(.-)%s") or ""
       local cp = firstCodepoint(glyph)
       -- Braille block: the spinner Claude Code animates while computing.
@@ -551,7 +557,7 @@ end
 -- funcs: functional (non-ignored) windows on the Desktop.
 -- ctx:   text of ALL window titles on the Desktop (incl. Terminal/Finder) plus
 --        the functional apps' names — used only to spot a repo name.
-local function detectLabel(funcs, ctx)
+local function detectLabel(funcs, ctx, claudeCwd)
   -- 1) an open document inside a repo (editor apps only).
   for _, w in ipairs(funcs) do
     local repo = repoForPath(w.doc)
@@ -574,6 +580,10 @@ local function detectLabel(funcs, ctx)
     if score > bestScore then best, bestScore = r.name, score end
   end
   if best then return best end
+  -- 3.5) a claude session's working directory, even when it is not under a repo
+  --      root. Running `claude` in ~ still deserves a labeled Desktop, and this
+  --      only fires when no repo matched, so it changes nothing that worked.
+  if claudeCwd and claudeCwd ~= "" then return claudeCwd end
   -- 4) no repo — fall back to the apps. One app → its own name (Mail); several
   --    apps sharing one subject → that subject (Communication); several
   --    different subjects → Utility.
@@ -653,7 +663,7 @@ end
 -- for repo hints. Terminal/Finder are excluded from the subject decision but
 -- their titles still feed the repo hint.
 local function readSpaceFrom(byId, sid)
-  local funcs, ctx = {}, {}
+  local funcs, ctx, claudeCwd = {}, {}, nil
   local ids = safeWindowsForSpace(sid)
   if not ids then return nil end        -- transient failure; caller keeps old label
   for _, id in ipairs(ids) do
@@ -665,6 +675,10 @@ local function readSpaceFrom(byId, sid)
         local app = appObj and appObj:name() or ""
         if app ~= "" then
           local title = w:title() or ""
+          -- A claude session on this Desktop names its working directory, which
+          -- is a better label than anything else available — even when that
+          -- directory is not one of the repo roots.
+          if not claudeCwd then claudeCwd = claudeCwdFromTitle(title) end
           -- Decide whether this window's title may suggest a repo. Three cases:
           -- never (browsers, chat apps, Finder), only-if-claude (terminals),
           -- and everything else, which contributes normally.
@@ -684,13 +698,13 @@ local function readSpaceFrom(byId, sid)
       end
     end
   end
-  return funcs, table.concat(ctx, " ")
+  return funcs, table.concat(ctx, " "), claudeCwd
 end
 
 local function labelSpace(byId, sid)
-  local funcs, ctx = readSpaceFrom(byId, sid)
+  local funcs, ctx, claudeCwd = readSpaceFrom(byId, sid)
   if not funcs then return end   -- unreadable this time; better a stale name than "—"
-  labelCache[sid] = detectLabel(funcs, ctx)
+  labelCache[sid] = detectLabel(funcs, ctx, claudeCwd)
   lastGather[sid] = funcs
 end
 
@@ -729,11 +743,8 @@ local function claudeStateFor(label)
   if key == "" then return nil end
   local state = claudeStates[key]
   if not state then return nil end
-  local isRepo = false
-  for _, r in ipairs(repos) do
-    if r.name:lower() == key then isRepo = true break end
-  end
-  if not isRepo then return nil end
+  -- No repo-membership test: the key already had to match a live session's
+  -- working directory, and a session in ~ is just as real as one in a repo.
   -- Computing beats everything: once you answer a question the session resumes,
   -- the spinner returns, and the dot goes yellow without waiting on a hook.
   if state == "working" then return "working" end

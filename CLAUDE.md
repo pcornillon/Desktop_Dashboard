@@ -159,6 +159,13 @@ claude session (terminals), and everything else contributes normally.
   flagged, or every login would show a wall of green. Re-prompting clears the flag.
   Acknowledging by pressing return in the claude window is **not** possible: an empty
   return does not change the terminal title, so there is nothing to observe.
+- **A claude session's working directory labels its Desktop, repo or not.** Rule 3.5 in
+  `detectLabel`: if a terminal on the Desktop is running claude, its cwd becomes the label
+  when no repo matched. Before this, `claude` started in `~` left the Desktop reading `—`
+  (Terminal is ignored for the subject, and the cwd matched no repo), so it could never
+  carry a dot either — reported 2026-07-29. The dot's repo-membership test went with it:
+  the key already has to match a live session's cwd, and a session in `~` is as real as one
+  in a repo. Fires only when no repo matched, so nothing that previously worked changes.
 - **The dot is looked up by the DETECTED label, never the displayed one.** A ⌘⌃⌥N name
   replaces what the panel shows but not what the Desktop is; session state is keyed by repo
   name, so matching on the displayed string meant every renamed Desktop silently lost its

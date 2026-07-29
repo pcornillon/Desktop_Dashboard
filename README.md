@@ -255,6 +255,8 @@ In order, first match wins:
    somewhere does not. Finder, browsers and chat apps never count: their titles name what
    you're *browsing* or *discussing*, which is not what the Desktop is *for*.
 3. **Loose token overlap** with a repo name.
+3b. **A claude session's working directory**, even if it isn't one of your repo roots — so
+   `claude` started in your home directory labels that Desktop too, and gets a dot.
 4. **The apps themselves** — one app → its name; several sharing a subject → that subject;
    several subjects → `Utility`.
 
