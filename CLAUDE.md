@@ -159,6 +159,13 @@ claude session (terminals), and everything else contributes normally.
   flagged, or every login would show a wall of green. Re-prompting clears the flag.
   Acknowledging by pressing return in the claude window is **not** possible: an empty
   return does not change the terminal title, so there is nothing to observe.
+- **The dot is looked up by the DETECTED label, never the displayed one.** A ⌘⌃⌥N name
+  replaces what the panel shows but not what the Desktop is; session state is keyed by repo
+  name, so matching on the displayed string meant every renamed Desktop silently lost its
+  dot — and never cleared its green flag either, since `acknowledgeSids` had the same fault.
+  Both now key off `labelCache[sid]` and use `overrides[sid]` for display only. Observed
+  2026-07-29: a Desktop renamed `three-way_analysis` showed no dot while its session was
+  plainly working, because the state lived under `three-way_sst_error_analysis_manuscript`.
 - **Sessions mode acknowledges by focus, not by Space.** Visiting a Desktop is meaningless
   when every session shares one, so `acknowledgeFrontSession` clears the flag for whichever
   Terminal window is frontmost. Two guards matter: Terminal reports a `front window` even

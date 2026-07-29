@@ -148,7 +148,9 @@ out, and ⌘⌃⌥S will not overwrite it — that's the point of setting one. T
 automatic labeling, press ⌘⌃⌥N on that Desktop again and submit an **empty** name.
 
 Behind the scenes a scan still works out the automatic label for a Desktop you've named,
-it just doesn't show it. So clearing your name reveals a current label, not a stale one.
+it just doesn't show it. So clearing your name reveals a current label, not a stale one —
+and the session dot keeps working, because it follows the detected repo rather than the
+name you typed.
 
 **Dragging.** Press anywhere on the panel and drag it where you like. Each display
 remembers its own position, and it survives a reload. A press that moves less than a few

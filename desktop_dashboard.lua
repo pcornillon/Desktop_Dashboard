@@ -45,7 +45,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v29 (session summary on its own indented line, 2026-07-28)"
+M.version = "v30 (renamed Desktops keep their session dot, 2026-07-29)"
 
 -- ============================ CONFIG ============================
 
@@ -483,7 +483,9 @@ local function acknowledgeSids(sids)
   if not M.showClaudeDot then return false end
   local changed = false
   for _, sid in ipairs(sids or {}) do
-    local label = overrides[sid] or labelCache[sid]
+    -- Same reason as claudeStateFor: the flag is keyed by repo, so a renamed
+    -- Desktop would never clear its own green dot.
+    local label = labelCache[sid]
     if label then
       local key = tostring(label):lower()
       if claudeDone[key] then claudeDone[key] = nil; changed = true end
@@ -801,8 +803,12 @@ local function screenEntries(screen)
   local active = safeActiveSpace(screen)
   local entries = {}
   for i, sid in ipairs(spaces) do
-    local label = overrides[sid] or labelCache[sid] or "…"
-    local state = claudeStateFor(label)
+    local auto  = labelCache[sid]
+    local label = overrides[sid] or auto or "…"
+    -- Look the dot up by the DETECTED repo, never by what is displayed. A name
+    -- you set with ⌘⌃⌥N replaces the label but not the repo, and matching on the
+    -- displayed name silently cost every renamed Desktop its dot.
+    local state = claudeStateFor(auto)
     -- Desktops with no session keep a blank slot so the arrows stay aligned.
     local dot    = state and (M.claudeDotChar or "●") or " "
     local prefix = string.format("%sDesktop %d ", (sid == active) and "▸ " or "   ", i)
