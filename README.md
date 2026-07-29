@@ -250,14 +250,17 @@ In order, first match wins:
 
 1. **An open file inside a repo** — for editors in `M.docApps`, the document's path. The
    path names the repo, so the file is never opened or read.
-2. **A repo name in a window title** — but only from titles that name a *location*. A
+2. **A claude session running on it** — its working directory, whether or not that's one
+   of your repos. A session's location is a fact about the Desktop, so it beats a repo name
+   that merely appears in some window's text. Only the directory counts; the session's task
+   summary is deliberately ignored, since matching repo names inside prose is where every
+   mislabel has come from.
+3. **A repo name in a window title** — but only from titles that name a *location*. A
    terminal counts **only when it's running `claude`**; a shell that happens to be `cd`'d
    somewhere does not. Finder, browsers and chat apps never count: their titles name what
    you're *browsing* or *discussing*, which is not what the Desktop is *for*.
-3. **Loose token overlap** with a repo name.
-3b. **A claude session's working directory**, even if it isn't one of your repo roots — so
-   `claude` started in your home directory labels that Desktop too, and gets a dot.
-4. **The apps themselves** — one app → its name; several sharing a subject → that subject;
+4. **Loose token overlap** with a repo name.
+5. **The apps themselves** — one app → its name; several sharing a subject → that subject;
    several subjects → `Utility`.
 
 ## Configuration

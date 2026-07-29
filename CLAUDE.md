@@ -159,6 +159,16 @@ claude session (terminals), and everything else contributes normally.
   flagged, or every login would show a wall of green. Re-prompting clears the flag.
   Acknowledging by pressing return in the claude window is **not** possible: an empty
   return does not change the terminal title, so there is nothing to observe.
+- **A live session outranks any repo name found in prose, and its task summary never
+  feeds the hint.** Observed 2026-07-29: a session in `~` whose summary read "Establish
+  consistent config structure for Claude projects" shares the tokens *claude* and *config*
+  with the repo `claude-config`, so rule 3 relabeled that Desktop `claude-config` — and the
+  real session lost its dot, since the state is keyed by cwd. Two changes: the session cwd
+  is now rule 1.5, ahead of both text rules, because where a session is running is a fact
+  about the Desktop while a mentioned repo name is not; and a terminal contributes only its
+  cwd to `ctx`, never the summary. This is the fourth false positive from matching repo
+  names inside free text (Trash filenames, browser page titles, chat conversation names,
+  now task summaries) — prefer a fact over a string match every time.
 - **A claude session's working directory labels its Desktop, repo or not.** Rule 3.5 in
   `detectLabel`: if a terminal on the Desktop is running claude, its cwd becomes the label
   when no repo matched. Before this, `claude` started in `~` left the Desktop reading `—`

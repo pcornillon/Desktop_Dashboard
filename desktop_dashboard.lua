@@ -45,7 +45,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v31 (a claude session outside a repo still counts, 2026-07-29)"
+M.version = "v32 (a live session outranks repo names found in prose, 2026-07-29)"
 
 -- ============================ CONFIG ============================
 
@@ -563,6 +563,10 @@ local function detectLabel(funcs, ctx, claudeCwd)
     local repo = repoForPath(w.doc)
     if repo then return repo end
   end
+  -- 1.5) a claude session running here. Its working directory is a fact about
+  --      this Desktop, so it outranks any repo name merely *mentioned* in some
+  --      window's text — and it works whether or not the directory is a repo.
+  if claudeCwd and claudeCwd ~= "" then return claudeCwd end
   -- 2) a repo name in any title on the Desktop — the claude terminal's title
   --    or a Finder window parked in the repo both count as a hint.
   local nc = normalize(ctx or "")
@@ -580,10 +584,6 @@ local function detectLabel(funcs, ctx, claudeCwd)
     if score > bestScore then best, bestScore = r.name, score end
   end
   if best then return best end
-  -- 3.5) a claude session's working directory, even when it is not under a repo
-  --      root. Running `claude` in ~ still deserves a labeled Desktop, and this
-  --      only fires when no repo matched, so it changes nothing that worked.
-  if claudeCwd and claudeCwd ~= "" then return claudeCwd end
   -- 4) no repo — fall back to the apps. One app → its own name (Mail); several
   --    apps sharing one subject → that subject (Communication); several
   --    different subjects → Utility.
@@ -678,17 +678,23 @@ local function readSpaceFrom(byId, sid)
           -- A claude session on this Desktop names its working directory, which
           -- is a better label than anything else available — even when that
           -- directory is not one of the repo roots.
-          if not claudeCwd then claudeCwd = claudeCwdFromTitle(title) end
-          -- Decide whether this window's title may suggest a repo. Three cases:
+          local sessCwd = claudeCwdFromTitle(title)
+          if sessCwd and not claudeCwd then claudeCwd = sessCwd end
+          -- Decide what of this window's title may suggest a repo. Three cases:
           -- never (browsers, chat apps, Finder), only-if-claude (terminals),
-          -- and everything else, which contributes normally.
-          local hint = true
+          -- and everything else, which contributes its whole title.
+          local hint, hintText = true, title
           if M.noRepoHintApps[app] then
             hint = false
           elseif M.claudeOnlyHintApps[app] then
-            hint = title:lower():find(M.claudeTitleMarker or "claude", 1, true) ~= nil
+            -- A session contributes ONLY its working directory. Its task summary
+            -- is prose about the work, and repo names matched inside prose are
+            -- where every false positive so far has come from: a summary reading
+            -- "config structure for Claude projects" shares two tokens with the
+            -- repo `claude-config` and relabeled the Desktop after it.
+            hint, hintText = sessCwd ~= nil, sessCwd
           end
-          if hint then ctx[#ctx + 1] = title end
+          if hint and hintText then ctx[#ctx + 1] = hintText end
           if not M.ignoreApps[app] then
             ctx[#ctx + 1] = app
             funcs[#funcs + 1] = { win = w, app = app, title = title,
