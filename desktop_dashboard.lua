@@ -46,14 +46,25 @@
   Every panel line whose label is a repo also carries a git dot: RED if this
   machine has something GitHub doesn't (uncommitted changes or unpushed
   commits), GREEN if it is clean and fully pushed. That check is local/offline;
-  ⌘⌃⌥ g is what reaches out to GitHub.
+  ⌘⌃⌥ g is what reaches out to GitHub. An empty dot slot on a line whose other
+  dot is lit is drawn GRAY, so claude (first) and git (second) can always be
+  told apart by position.
+
+  Each line is a NAME and an ICON ROW. The name says what the Desktop is for (a
+  repo, or a name you set with ⌘⌃⌥n); the icons say what is on it, Finder and
+  terminals last. A Desktop whose label would only name apps (Utility, or one
+  app's own name) drops the word and shows just the icons. Point at an icon to
+  see which app it is and which window you'd get; click it to go to that Desktop
+  AND raise that window (clicking the line just goes to the Desktop).
+
+  Drag the grip in the bottom-right corner to resize the whole panel.
 
   Names + window layout auto-save (periodically and at logout/shutdown) to
   ~/.hammerspoon/desktop_dashboard_state.json.
 ============================================================]]--
 
 local M = {}
-M.version = "v34 (half-space gap between the claude and git dots, 2026-07-30)"
+M.version = "v40 (CoreGraphics finds apps Accessibility cannot see; drag-corner resize, 2026-07-30)"
 
 -- ============================ CONFIG ============================
 
@@ -130,6 +141,14 @@ M.appLabels = {
 -- still works — you simply never see red.
 M.showClaudeDot    = true
 M.claudeDotChar    = "●"
+-- An empty dot slot on a line that shows ANY live dot is drawn as a dim gray
+-- dot rather than left blank. The two dots are told apart by position (claude
+-- first, git second), and position only reads if both columns are visible: a
+-- lone green git dot floating in slot 2 was being taken for a claude dot.
+-- Lines with nothing to report stay blank — a wall of gray dots on every
+-- Desktop would be worse than the ambiguity it fixes.
+M.showDotPlaceholders  = true
+M.dotPlaceholderColor  = { white = 0.42, alpha = 1 }
 M.claudeDotSeconds = 3           -- how often titles are read (async, never blocks)
 M.claudeStateDir   = os.getenv("HOME") .. "/.hammerspoon/claude_state"
 M.claudeHookMaxAgeHours = 12     -- ignore state files older than this
@@ -205,6 +224,53 @@ M.docApps = {
 M.utilityMinSubjects = 2
 M.utilityLabel       = "Utility"
 
+-- APP ICONS. Whenever a Desktop's label names APPS rather than work, the panel
+-- draws the apps instead of the word: "Utility" and "Communication" (a bucket
+-- for a mix), and a lone app's own name ("MacDown"). A Desktop labeled by a
+-- repo or by a claude session's directory keeps its text — that names the work,
+-- which no icon can. Pointing at an icon gives the name back, which is what
+-- makes dropping the word affordable.
+-- Set false to go back to the words everywhere.
+M.showAppIcons = true
+M.maxAppIcons  = 6              -- beyond this, the rest are summarised as "+N"
+M.appIconGap   = 3              -- px between icons
+M.appIconBump  = 3              -- icon edge = fontSize + this
+
+-- Hovering an icon names it. A 16 px icon is recognisable for apps you use all
+-- day and a guess for the rest, which is exactly the case the icons are meant
+-- to cover — so point at one and a tip says which app it is and which of its
+-- windows you'd get. Naming beats enlarging: a bigger version of an icon you
+-- didn't recognise is still an icon you don't recognise.
+M.showIconTips    = true
+M.iconTipDelay    = 0.18        -- s before the tip appears; keeps a sweep across
+                                -- the row from flashing every name on the way past
+M.iconTipMaxChars = 44          -- window title truncated to this
+
+-- Clicking an ICON goes to that Desktop and raises that app's window; clicking
+-- anywhere else on the line just goes to the Desktop and leaves whatever was
+-- focused there alone. Both are useful: the line is "take me there", the icon is
+-- "take me to this".
+M.iconClickFocus = true
+M.iconFocusDelay = 0.45         -- s to let the Space switch settle before raising
+
+-- Apps that are ignored when deciding what a Desktop is ABOUT, but still worth
+-- an icon: "there's a Finder and two terminals here" is useful even though the
+-- Desktop is not *about* Finder. Their icons always come LAST, after the
+-- subject apps, so the row keeps reading subject-first. Terminals are taken
+-- from M.claudeOnlyHintApps rather than repeated here, so adding your terminal
+-- there is enough. Hammerspoon is deliberately absent: it is this panel.
+M.trailingIconApps = { ["Finder"] = true }
+
+-- RESIZE. Drag the grip in the bottom-right corner. It scales M.fontSize, which
+-- every other measurement derives from, so the panel keeps its proportions
+-- instead of stretching — there is no free aspect ratio here, the shape comes
+-- from the content. The size is saved with the layout, like the position.
+-- (This replaced a pair of −/+ buttons: stepping one point per click to cross a
+-- useful range was tedious, which is the whole objection to a stepper.)
+M.showResizeGrip = true
+M.minFontSize    = 9
+M.maxFontSize    = 28
+
 M.categoryPatterns = {
   { pat = "MATLAB", cat = "Matlab" },
   { pat = "Simply Fortran", cat = "Fortran" },
@@ -236,11 +302,31 @@ M.draggable       = true
 M.dragThreshold   = 3           -- px of movement before a press counts as a drag
                                 -- rather than a click on a Desktop line
 
+-- THE "YOU ARE HERE" MARKER. The active Desktop is called out twice: a caret,
+-- and the Desktop number in magenta. Both, because either alone is weak — the
+-- caret is easy to miss in a list of a dozen lines, and color alone excludes
+-- anyone who can't separate it from white (this panel already spends four
+-- colors on the dots). Magenta is deliberately not one of the dot colors.
+--
+-- The two markers MUST render the same width or the active line loses its
+-- alignment with the rest. "▸" is exactly one Menlo cell, so caret + 2 spaces
+-- matches 3 spaces. If you change these, check the widths — do not assume a
+-- glyph occupies one cell just because the font is monospaced.
+M.highlightActive = true
+M.activeMarker    = "▸  "
+M.inactiveMarker  = "   "
+M.activeColor     = { red = 1.00, green = 0.45, blue = 0.90, alpha = 1 }
+
 M.corner          = "topleft"
 M.margin          = 14
 M.fontSize        = 13
+-- The width bounds are in px, and px stop meaning anything fixed once the panel
+-- can be zoomed: at 20 pt a long repo name plus its icons needs ~990 px, so a
+-- flat 760 cap simply cut the icons off the right-hand end. Both bounds are
+-- therefore taken as px AT M.baseFontSize and scaled with the current size.
 M.minWidth        = 220
 M.maxWidth        = 760
+M.baseFontSize    = 13          -- the size minWidth/maxWidth were chosen for
 M.sectionGap      = 10
 M.refreshSeconds  = 10          -- re-read the visible Desktop(s) this often (cheap)
 M.repoRescanSeconds = 30        -- re-list repoRoots this often, so repos created
@@ -271,7 +357,14 @@ local panelPos   = {}          -- screen UUID -> { x =, y = } once dragged
 local drag       = nil         -- in-flight drag session, nil when idle
 local dragTap, dragWatchdog
 local labelCache = {}          -- spaceID -> label string
-local lastGather = {}          -- spaceID -> { {app,title,doc,win}, ... }
+local lastGather = {}          -- spaceID -> { {app,title,doc,win,bundle}, ... }
+local iconApps   = {}          -- spaceID -> ordered { {bundle,app,wid,title}, ... } to
+                               -- draw as icons, set only for app-grouped Desktops
+local iconImages = {}          -- bundle id -> hs.image, or false if it has none
+local iconMeta   = {}          -- canvas element id -> { app, title, x, y, w, h },
+                               -- rebuilt by draw(); drives the hover tip
+local hoverId, hoverUUID       -- the icon currently pointed at, and its screen
+local tipCanvas, tipTimer, tipWatch, focusTimer
 local overrides  = {}          -- spaceID -> manual name
 local repos      = {}
 local reposLoadedAt = 0        -- when loadRepos() last ran (see refreshRepos)
@@ -309,6 +402,18 @@ local function tokenSet(s)
 end
 
 local function uwidth(s) return (utf8 and utf8.len and utf8.len(s)) or #s end
+-- One monospaced character's width, the unit the panel is sized in.
+local function charWidth() return (M.fontSize or 13) * 0.62 end
+-- Icon edge and the gap after it, in px.
+local function iconMetrics()
+  return math.max(8, (M.fontSize or 13) + (M.appIconBump or 3)), (M.appIconGap or 3)
+end
+
+-- Ignored for the subject, but still shown as an icon at the end of the row.
+local function isTrailingIconApp(app)
+  return (M.trailingIconApps and M.trailingIconApps[app])
+      or (M.claudeOnlyHintApps and M.claudeOnlyHintApps[app]) or false
+end
 local function loadState() local t = hs.json.read(stateFile); return (type(t) == "table") and t or nil end
 local function saveState(t) pcall(hs.json.write, t, stateFile, true, true) end
 
@@ -660,16 +765,23 @@ end
 -- funcs: functional (non-ignored) windows on the Desktop.
 -- ctx:   text of ALL window titles on the Desktop (incl. Terminal/Finder) plus
 --        the functional apps' names — used only to spot a repo name.
+--
+-- Returns the label AND the kind of evidence behind it: "repo", "cwd", "app"
+-- (one app, so the label is its name), "apps" (two or more apps, so the label
+-- is a bucket — Utility or a shared category), or "none". Only "apps" earns
+-- icons: the label there names a grouping rather than the work, which is
+-- exactly the case the icons replace. Every existing caller reads the first
+-- value only, so the second is additive.
 local function detectLabel(funcs, ctx, claudeCwd)
   -- 1) an open document inside a repo (editor apps only).
   for _, w in ipairs(funcs) do
     local repo = repoForPath(w.doc)
-    if repo then return repo end
+    if repo then return repo, "repo" end
   end
   -- 1.5) a claude session running here. Its working directory is a fact about
   --      this Desktop, so it outranks any repo name merely *mentioned* in some
   --      window's text — and it works whether or not the directory is a repo.
-  if claudeCwd and claudeCwd ~= "" then return claudeCwd end
+  if claudeCwd and claudeCwd ~= "" then return claudeCwd, "cwd" end
   -- 2) a repo name in any title on the Desktop — the claude terminal's title
   --    or a Finder window parked in the repo both count as a hint.
   local nc = normalize(ctx or "")
@@ -677,7 +789,7 @@ local function detectLabel(funcs, ctx, claudeCwd)
   for _, r in ipairs(repos) do
     if #r.norm >= 4 and nc:find(r.norm, 1, true) and #r.norm > projLen then proj, projLen = r.name, #r.norm end
   end
-  if proj then return proj end
+  if proj then return proj, "repo" end
   -- 3) token overlap.
   local ctoks = tokenSet(nc)
   local best, bestScore = nil, 1
@@ -686,22 +798,22 @@ local function detectLabel(funcs, ctx, claudeCwd)
     for t in pairs(r.tokens) do if ctoks[t] then score = score + 1 end end
     if score > bestScore then best, bestScore = r.name, score end
   end
-  if best then return best end
+  if best then return best, "repo" end
   -- 4) no repo — fall back to the apps. One app → its own name (Mail); several
   --    apps sharing one subject → that subject (Communication); several
   --    different subjects → Utility.
-  if #funcs == 0 then return "—" end
+  if #funcs == 0 then return "—", "none" end
   local cats, catOrder, apps, appOrder = {}, {}, {}, {}
   for _, w in ipairs(funcs) do
     local c = categorize(w.app)
     if not cats[c] then cats[c] = true; catOrder[#catOrder + 1] = c end
     if not apps[w.app] then apps[w.app] = true; appOrder[#appOrder + 1] = w.app end
   end
-  if #catOrder >= (M.utilityMinSubjects or 2) then return M.utilityLabel or "Utility" end
+  if #catOrder >= (M.utilityMinSubjects or 2) then return M.utilityLabel or "Utility", "apps" end
   if #appOrder == 1 then                          -- single app → its own name
-    return M.appLabels[appOrder[1]] or appOrder[1]
+    return M.appLabels[appOrder[1]] or appOrder[1], "app"
   end
-  return catOrder[1] or "?"                        -- several apps, one subject
+  return catOrder[1] or "?", "apps"                -- several apps, one subject
 end
 
 -- ---- reading the visible Desktops (cheap, reliable) -----------------------
@@ -759,18 +871,53 @@ local function snapshot()
       if oki and id then byId[id] = w end
     end
   end
-  return byId
+  -- A SECOND index, from CoreGraphics, for windows Accessibility cannot see at
+  -- all. Measured 2026-07-30: the Claude desktop app returns nil for every AX
+  -- attribute — no role, no windows, nothing — so a Desktop holding it and
+  -- ChatGPT read as empty ("—") however many windows were actually on it, while
+  -- CoreGraphics listed both at layer 0. This is on-screen only, which is
+  -- exactly the Space(s) macOS lets us read anyway. ~14 ms, the same order as
+  -- allWindows() above, and like it: ONCE per read pass, never per window.
+  local byCg = {}
+  local okc, list = pcall(hs.window.list, true)
+  if okc and type(list) == "table" then
+    for _, e in ipairs(list) do
+      if e.kCGWindowNumber then byCg[e.kCGWindowNumber] = e end
+    end
+  end
+  return byId, byCg
 end
 
 -- Functional windows on a Space (from the snapshot) + the context text used
 -- for repo hints. Terminal/Finder are excluded from the subject decision but
 -- their titles still feed the repo hint.
-local function readSpaceFrom(byId, sid)
-  local funcs, ctx, claudeCwd = {}, {}, nil
+local function readSpaceFrom(byId, sid, byCg)
+  local funcs, ctx, claudeCwd, extras = {}, {}, nil, {}
+  local ghosts, ghostSeen = {}, {}      -- apps only CoreGraphics can see
   local ids = safeWindowsForSpace(sid)
   if not ids then return nil end        -- transient failure; caller keeps old label
   for _, id in ipairs(ids) do
     local w = byId[id]
+    if not w and byCg then
+      -- Accessibility didn't produce this window. CoreGraphics may still know
+      -- who owns it. Layer 0 is an ordinary application window; everything
+      -- above (25, 24, …) is menu-bar extras, Spotlight, the Dock, us. All we
+      -- get is the owner, so these contribute an ICON and nothing else — no
+      -- title, no document, so they can never affect repo detection.
+      local e = byCg[id]
+      if e and e.kCGWindowLayer == 0 then
+        local app = tostring(e.kCGWindowOwnerName or "")
+        if app ~= "" and not ghostSeen[app] then
+          ghostSeen[app] = true
+          local pid = e.kCGWindowOwnerPID
+          local a   = pid and hs.application.applicationForPID(pid)
+          local bid = a and a:bundleID() or nil
+          local rec = { app = app, bundle = bid, pid = pid, title = "" }
+          if not M.ignoreApps[app] then ghosts[#ghosts + 1] = rec
+          elseif isTrailingIconApp(app) then extras[#extras + 1] = rec end
+        end
+      end
+    end
     if w then
       local oks, std = pcall(function() return w:isStandard() end)
       if oks and std then
@@ -798,22 +945,92 @@ local function readSpaceFrom(byId, sid)
             hint, hintText = sessCwd ~= nil, sessCwd
           end
           if hint and hintText then ctx[#ctx + 1] = hintText end
+          -- bundleID comes from the running application object we already hold
+          -- — no accessibility call, so it costs nothing. It is what
+          -- hs.image.imageFromAppBundle needs to draw the app's icon.
+          local okb, bid = pcall(function() return appObj:bundleID() end)
           if not M.ignoreApps[app] then
             ctx[#ctx + 1] = app
             funcs[#funcs + 1] = { win = w, app = app, title = title,
+                                  bundle = (okb and bid) or nil,
                                   doc = M.docApps[app] and docOf(w) or nil }  -- editors only
+          elseif isTrailingIconApp(app) then
+            -- Finder and terminals are ignored for the SUBJECT — a Desktop is
+            -- never *about* Finder — but "there is a Finder and two terminals
+            -- here" is still worth knowing, so they earn an icon at the end of
+            -- the row. Hammerspoon stays out: it is this panel.
+            extras[#extras + 1] = { win = w, app = app, title = title,
+                                    bundle = (okb and bid) or nil }
           end
         end
       end
     end
   end
-  return funcs, table.concat(ctx, " "), claudeCwd
+  return funcs, table.concat(ctx, " "), claudeCwd, extras, ghosts
 end
 
-local function labelSpace(byId, sid)
-  local funcs, ctx, claudeCwd = readSpaceFrom(byId, sid)
+-- The distinct apps in a window list, in the order they were read, as
+-- { bundle, app, wid, title }. Deduped by bundle id, because two windows of the
+-- same app are one icon. `seen` is shared across calls so the trailing pass
+-- can't repeat an app the leading pass already drew.
+-- Each entry carries the id of the FIRST window of that app on the Desktop,
+-- which is the window a click on the icon raises, and that window's title, which
+-- the hover tip shows so you know which one you're about to get.
+local function collectIcons(windows, out, seen)
+  for _, w in ipairs(windows) do
+    if w.bundle and w.bundle ~= "" and not seen[w.bundle] then
+      seen[w.bundle] = true
+      -- A CoreGraphics-only entry has no window object, so it carries its
+      -- owner's pid instead: enough to raise the app, not a specific window.
+      local wid
+      if w.win then
+        local okid, id = pcall(function() return w.win:id() end)
+        wid = okid and id or nil
+      end
+      out[#out + 1] = { bundle = w.bundle, app = w.app, title = w.title,
+                        wid = wid, pid = w.pid }
+    end
+  end
+  return out
+end
+
+-- The whole icon row for a Desktop: the subject apps first, then Finder and any
+-- terminals. `named` says the line keeps a text name (a repo, a session's
+-- directory) that the icons follow rather than replace; `min` is how many
+-- LEADING icons must resolve before the row may stand in for a word.
+local function buildIconList(funcs, extras, ghosts, kind)
+  local named = (kind == "repo" or kind == "cwd")
+  local seen  = {}
+  local list  = collectIcons(funcs, {}, seen)
+  collectIcons(ghosts or {}, list, seen)       -- subject apps too, so still leading
+  local lead  = #list                          -- everything after this is trailing
+  local tail  = {}
+  for _, w in ipairs(extras or {}) do
+    -- A terminal is dropped from a Desktop named after a repo or a session's
+    -- directory: that name came from the terminal, so its icon would only say
+    -- the same thing twice. Finder is never redundant that way.
+    if not (named and M.claudeOnlyHintApps[w.app]) then tail[#tail + 1] = w end
+  end
+  collectIcons(tail, list, seen)
+  list.lead  = lead
+  list.named = named
+  -- Below this many leading icons the word is kept instead: one icon standing
+  -- in for a three-app Desktop would claim the others aren't there. A named
+  -- Desktop keeps its name regardless, so it has no such threshold.
+  list.min   = named and 0 or ((kind == "app") and 1 or (kind == "apps") and 2 or 0)
+  return list
+end
+
+local function labelSpace(byId, sid, byCg)
+  local funcs, ctx, claudeCwd, extras, ghosts = readSpaceFrom(byId, sid, byCg)
   if not funcs then return end   -- unreadable this time; better a stale name than "—"
-  labelCache[sid] = detectLabel(funcs, ctx, claudeCwd)
+  local label, kind = detectLabel(funcs, ctx, claudeCwd)
+  labelCache[sid] = label
+  -- Every Desktop now gets an icon row. On one whose label names APPS (a bucket
+  -- like Utility, or a single app's name) the icons REPLACE that word; on one
+  -- named after a repo or a session's directory they FOLLOW the name, which no
+  -- icon could express.
+  iconApps[sid]   = buildIconList(funcs, extras, ghosts, kind)
   lastGather[sid] = funcs
 end
 
@@ -822,9 +1039,9 @@ local function scanActive()
   refreshRepos()
   refreshClaudeStates()
   refreshGitStates()
-  local byId = snapshot()
+  local byId, byCg = snapshot()
   local sids = activeSids()
-  for _, sid in ipairs(sids) do labelSpace(byId, sid) end
+  for _, sid in ipairs(sids) do labelSpace(byId, sid, byCg) end
   acknowledgeSids(sids)          -- you are looking at these Desktops right now
   if not scanningAll then M.status = nil end   -- clear any stale scan status
 end
@@ -886,6 +1103,73 @@ local function gitDotSpec(state)
   return { ch = ch, color = state and (M.gitDotColors or {})[state] or nil }
 end
 
+-- Fill the empty slots of a line that already shows at least one live dot with
+-- a dim gray dot, so both columns are visible and position tells the two apart.
+-- A line with no live dot at all is left blank: gray everywhere would say
+-- nothing and cost the panel two columns of noise on every Desktop.
+local function withPlaceholders(dots)
+  if not M.showDotPlaceholders then return dots end
+  local live = false
+  for _, d in ipairs(dots) do if d.color then live = true; break end end
+  if not live then return dots end
+  for _, d in ipairs(dots) do
+    if not d.color then
+      d.ch    = M.claudeDotChar or "●"
+      d.color = M.dotPlaceholderColor or { white = 0.42, alpha = 1 }
+      d.faint = true
+    end
+  end
+  return dots
+end
+
+-- An app icon, memoized: icons don't change while Hammerspoon runs, and draw()
+-- rebuilds every canvas. `false` records "this bundle has no icon" so a failed
+-- lookup isn't retried on every redraw.
+local function iconImageFor(bundle)
+  local cached = iconImages[bundle]
+  if cached ~= nil then return cached or nil end
+  local ok, img = pcall(hs.image.imageFromAppBundle, bundle)
+  iconImages[bundle] = (ok and img) or false
+  return iconImages[bundle] or nil
+end
+
+-- The icon row for a Desktop, or nil if there is nothing to draw. `list.min`
+-- (set when the Desktop was read) is how many LEADING icons must resolve before
+-- the row may stand in for a word: two for a mixed Desktop, where a lone icon
+-- would misrepresent what's there and `Utility` is at least honest about being
+-- a summary; one for a single-app Desktop; none for a Desktop that keeps its
+-- name anyway. Trailing icons (Finder, terminals) never count toward it —
+-- a Finder must not be what lets a three-app Desktop lose the word.
+local function iconsFor(sid)
+  if not M.showAppIcons then return nil end
+  local list = iconApps[sid]
+  if not list then return nil end
+  local min, lead = list.min or 0, list.lead or #list
+  local items, extra, leadOK = {}, 0, 0
+  for i, a in ipairs(list) do
+    local img = iconImageFor(a.bundle)
+    if img then
+      if i <= lead then leadOK = leadOK + 1 end
+      if #items < (M.maxAppIcons or 6) then
+        items[#items + 1] = { img = img, app = a.app, title = a.title, wid = a.wid }
+      else
+        extra = extra + 1
+      end
+    end
+  end
+  if leadOK < min or #items == 0 then return nil end
+  return { items = items, extra = extra, named = list.named }
+end
+
+-- How many monospaced characters the icon row occupies, so the existing
+-- width calculation (which counts characters) sizes the panel to fit it.
+local function iconTextPad(icons)
+  local size, gap = iconMetrics()
+  local w = #icons.items * (size + gap)
+  if icons.extra > 0 then w = w + charWidth() * uwidth("+" .. icons.extra) end
+  return math.ceil(w / charWidth())
+end
+
 -- One line per live claude session: "T1 ●● project — summary" (claude dot,
 -- then git dot).
 --
@@ -903,7 +1187,7 @@ local function sessionEntries()
       elseif claudeHooks[key] == "waiting" then state = "waiting"
       elseif sessionDone[s.wid] then state = "done" end
     end
-    local dots = { claudeDotSpec(state), gitDotSpec(gitStateFor(s.project)) }
+    local dots = withPlaceholders({ claudeDotSpec(state), gitDotSpec(gitStateFor(s.project)) })
     local mid  = dots[1].ch .. " " .. dots[2].ch     -- " " ≈ the half-gap, for width sizing
     local summary = tostring(s.summary or "")
     local lim = M.sessionSummaryChars or 20
@@ -948,20 +1232,32 @@ local function screenEntries(screen)
   local entries = {}
   for i, sid in ipairs(spaces) do
     local auto  = labelCache[sid]
-    local label = overrides[sid] or auto or "…"
     -- Look the dot up by the DETECTED repo, never by what is displayed. A name
     -- you set with ⌘⌃⌥N replaces the label but not the repo, and matching on the
     -- displayed name silently cost every renamed Desktop its dot.
     local state = claudeStateFor(auto)
     -- Desktops with no session / non-repo labels keep blank dot slots so the
     -- arrows stay aligned. Both dots are keyed off the DETECTED label (auto).
-    local dots   = { claudeDotSpec(state), gitDotSpec(gitStateFor(auto)) }
+    local dots   = withPlaceholders({ claudeDotSpec(state), gitDotSpec(gitStateFor(auto)) })
     local mid    = dots[1].ch .. " " .. dots[2].ch   -- " " ≈ the half-gap, for width sizing
-    local prefix = string.format("%sDesktop %d ", (sid == active) and "▸ " or "   ", i)
-    local suffix = string.format(" → %s", label)
+    local here   = (sid == active)
+    local prefix = string.format("%sDesktop %d ",
+      here and (M.activeMarker or "▸  ") or (M.inactiveMarker or "   "), i)
+    -- A line is TWO independent parts: a name, then the icon row. ⌘⌃⌥N replaces
+    -- the name and nothing else — the icons report what is actually on the
+    -- Desktop, which renaming it cannot change. The name is empty only when the
+    -- icons are standing in for a word that named apps (Utility, MacDown); a
+    -- repo or session directory keeps its text and the icons follow it.
+    local icons = iconsFor(sid)
+    local name  = overrides[sid]
+                  or ((icons and not icons.named) and "" or (auto or "…"))
+    local suffix = (name == "") and " → " or (" → " .. name .. " ")
+    local text   = prefix .. mid .. suffix
+    if icons then text = text .. string.rep(" ", iconTextPad(icons)) end
     entries[#entries + 1] = {
-      sid = sid, dots = dots, prefix = prefix, suffix = suffix,
-      text = prefix .. mid .. suffix,        -- plain form, used for sizing
+      sid = sid, dots = dots, icons = icons, prefix = prefix, suffix = suffix,
+      here = here,                           -- draws the caret + number in magenta
+      text = text,                           -- plain form, used for sizing
     }
   end
   return entries
@@ -1139,6 +1435,127 @@ end
 -- Bring a Terminal window to the front. macOS follows it to whatever Desktop it
 -- lives on, so this doubles as "go to that session". Run through hs.task so a
 -- busy Terminal cannot stall the panel.
+-- ---- the hover tip that names an app icon ---------------------------------
+
+local function canvasFor(uuid)
+  for _, c in ipairs(canvases) do if c.uuid == uuid then return c.cv end end
+  return nil
+end
+
+local function screenFrameAt(x, y)
+  for _, s in ipairs(hs.screen.allScreens()) do
+    local f = s:frame()
+    if x >= f.x and x < f.x + f.w and y >= f.y and y < f.y + f.h then return f end
+  end
+  local ok, f = pcall(function() return hs.screen.mainScreen():frame() end)
+  return (ok and f) or { x = 0, y = 0, w = 1440, h = 900 }
+end
+
+local function hideTip()
+  if tipTimer then tipTimer:stop(); tipTimer = nil end
+  if tipWatch then tipWatch:stop(); tipWatch = nil end
+  if tipCanvas then pcall(function() tipCanvas:delete() end); tipCanvas = nil end
+end
+
+local function clearHover() hideTip(); hoverId, hoverUUID = nil, nil end
+
+-- Draw (or re-place) the tip for whatever icon is currently hovered.
+local function showTip()
+  hideTip()
+  local m  = hoverId and iconMeta[hoverId]
+  local cv = hoverUUID and canvasFor(hoverUUID)
+  if not (m and cv) then return end
+  local okTL, tl = pcall(function() return cv:topLeft() end)
+  if not (okTL and tl) then return end
+
+  local size = math.max(9, (M.fontSize or 13) - 1)
+  local font = { name = "Menlo", size = size }
+  local rows = { { t = tostring(m.app or "?"), c = { white = 1, alpha = 1 } } }
+  -- The title names the window a click would raise, so you can tell two windows
+  -- of the same app apart before committing to the switch.
+  local title = tostring(m.title or "")
+  local lim   = M.iconTipMaxChars or 44
+  if uwidth(title) > lim then title = title:sub(1, lim) .. "…" end
+  if title ~= "" and title ~= m.app then
+    rows[#rows + 1] = { t = title, c = { white = 0.66, alpha = 1 } }
+  end
+
+  local tpad, rowH, wMax = 7, size + 4, 0
+  for _, r in ipairs(rows) do
+    local okw, sz = pcall(hs.drawing.getTextDrawingSize, hs.styledtext.new(r.t, { font = font }))
+    wMax = math.max(wMax, (okw and type(sz) == "table" and sz.w) or uwidth(r.t) * charWidth())
+  end
+  local tw, th = math.ceil(wMax) + tpad * 2 + 2, #rows * rowH + tpad * 2
+
+  -- Below the icon, so the pointer never ends up on the tip itself — that would
+  -- fire mouseExit on the icon and flicker. Pulled left / flipped above only
+  -- when it would otherwise run off the display.
+  local x, y = tl.x + m.x - tpad, tl.y + m.y + m.h + 5
+  local f = screenFrameAt(tl.x + m.x, tl.y + m.y)
+  if x + tw > f.x + f.w then x = f.x + f.w - tw - 2 end
+  if x < f.x then x = f.x + 2 end
+  if y + th > f.y + f.h then y = tl.y + m.y - th - 5 end
+
+  local tc = hs.canvas.new({ x = x, y = y, w = tw, h = th })
+  tc:behavior({ "canJoinAllSpaces", "stationary" })
+  tc:level(hs.canvas.windowLevels.popUpMenu or hs.canvas.windowLevels.floating)
+  tc:clickActivating(false)
+  tc:appendElements({
+    type = "rectangle", action = "strokeAndFill",
+    fillColor = { red = 0.09, green = 0.09, blue = 0.11, alpha = 0.96 },
+    strokeColor = { white = 1, alpha = 0.22 }, strokeWidth = 1,
+    roundedRectRadii = { xRadius = 6, yRadius = 6 },
+  })
+  local ty = tpad
+  for _, r in ipairs(rows) do
+    tc:appendElements({
+      type = "text", text = r.t, textFont = "Menlo", textSize = size, textColor = r.c,
+      frame = { x = tpad + 1, y = ty, w = tw - tpad * 2, h = rowH },
+    })
+    ty = ty + rowH
+  end
+  tc:show()
+  tipCanvas = tc
+
+  -- A canvas deleted under the pointer can swallow the mouseExit, which would
+  -- pin the tip on screen for good. Cheap poll, running only while one shows.
+  tipWatch = hs.timer.doEvery(0.4, function()
+    local mm = hoverId and iconMeta[hoverId]
+    local c  = hoverUUID and canvasFor(hoverUUID)
+    local okp, p  = pcall(hs.mouse.absolutePosition)
+    local okt, t2 = false, nil
+    if c then okt, t2 = pcall(function() return c:topLeft() end) end
+    if not (mm and okp and okt and t2) then clearHover(); return end
+    if p.x < t2.x + mm.x or p.x > t2.x + mm.x + mm.w
+       or p.y < t2.y + mm.y or p.y > t2.y + mm.y + mm.h then clearHover() end
+  end)
+end
+
+local function enterIcon(cv, id)
+  if M.showIconTips == false or not iconMeta[id] then return end
+  if hoverId == id and tipCanvas then return end
+  clearHover()
+  hoverId = id
+  for _, c in ipairs(canvases) do if c.cv == cv then hoverUUID = c.uuid end end
+  tipTimer = hs.timer.doAfter(M.iconTipDelay or 0.18, showTip)
+end
+
+local function exitIcon(id) if hoverId == id then clearHover() end end
+
+-- Called at the end of draw(). The canvases have just been replaced, so a
+-- visible tip is anchored to a deleted element: re-place it if the same icon is
+-- still there, drop it if it isn't. Without this the tip disappeared every time
+-- a dot changed (a 3 s timer) while the pointer sat still, and no fresh
+-- mouseEnter would ever arrive to bring it back.
+local function refreshTip()
+  if not hoverId then return end
+  if iconMeta[hoverId] and canvasFor(hoverUUID) then
+    if tipCanvas then showTip() end       -- a still-pending tipTimer needs nothing
+  else
+    clearHover()
+  end
+end
+
 local function focusTerminalWindow(wid)
   if not wid then return end
   sessionDone[wid] = nil                 -- looking at it is acknowledging it
@@ -1151,6 +1568,38 @@ end
 -- A click that never became a drag acts on whatever it landed on.
 local function activateElement(elementId)
   if type(elementId) ~= "string" then return end
+  if elementId == "resize" then return end   -- a click on the grip resizes nothing
+  -- An icon: go to the Desktop AND raise that app's window. Clicking the line
+  -- itself deliberately does not — arriving on a Desktop should normally leave
+  -- it as you left it; picking an icon is the way to say which window you want.
+  local isid, iwid = elementId:match("^icon:(%-?%d+):(p?%d+)$")
+  if isid then
+    clearHover()
+    pcall(hs.spaces.gotoSpace, tonumber(isid))
+    if M.iconClickFocus ~= false and iwid:sub(1, 1) == "p" then
+      -- CoreGraphics-only app: no window object exists to raise, so bring the
+      -- application forward and let it decide which of its windows that means.
+      focusTimer = hs.timer.doAfter(M.iconFocusDelay or 0.45, function()
+        local a = hs.application.applicationForPID(tonumber(iwid:sub(2)))
+        if a then pcall(function() a:activate() end) end
+      end)
+      return
+    end
+    if M.iconClickFocus ~= false then
+      -- Held in a module local: an hs.timer with nothing referencing it can be
+      -- collected before it fires (see CLAUDE.md — it silently killed the ⌘⌃⌥S
+      -- walk once). The wait lets the Space switch finish; raising into a
+      -- half-finished switch does nothing.
+      focusTimer = hs.timer.doAfter(M.iconFocusDelay or 0.45, function()
+        -- Re-resolve by id: the window object read minutes ago may be gone, and
+        -- only now is its Space active enough to look it up. hs.window.get is
+        -- the ~40 ms call banned from the read path, which one click can afford.
+        local okw, w = pcall(hs.window.get, tonumber(iwid))
+        if okw and w then pcall(function() w:focus() end) end
+      end)
+    end
+    return
+  end
   local sid = tonumber(elementId:match("^go:(%-?%d+)$") or "")
   if sid then pcall(hs.spaces.gotoSpace, sid); return end
   local wid = tonumber(elementId:match("^term:(%d+)$") or "")
@@ -1182,6 +1631,24 @@ local function dragMoveTo(px, py)
     return false
   end
   d.moved = true
+
+  if d.mode == "resize" then
+    -- The panel has no free aspect ratio: its shape follows its content, and
+    -- the one thing that scales it is the font size. So the drag is projected
+    -- onto the diagonal — both axes contribute, and dragging out along either
+    -- one grows the panel — and turned into a size. Integer font sizes mean
+    -- this redraws about twenty times across a full drag, not per pixel.
+    local ratio = ((d.startW + dx) + (d.startH + dy)) / (d.startW + d.startH)
+    M.setFontSize((d.startFont or 13) * ratio)
+    -- draw() has just replaced every canvas, so the one this drag was started
+    -- on is gone; re-point at its successor or the next move would act on a
+    -- deleted object.
+    if d.uuid then
+      for _, c in ipairs(canvases) do if c.uuid == d.uuid then d.cv = c.cv end end
+    end
+    return true
+  end
+
   local nx, ny = d.originX + dx, d.originY + dy
   pcall(function() d.cv:topLeft({ x = nx, y = ny }) end)
   if d.uuid then panelPos[d.uuid] = { x = nx, y = ny } end
@@ -1189,12 +1656,19 @@ local function dragMoveTo(px, py)
 end
 
 local function startDrag(cv, uuid, elementId)
-  if not (M.draggable and cv) then return end
+  -- The grip resizes even when the panel is pinned (M.draggable = false):
+  -- those are different things to want.
+  local resizing = (elementId == "resize") and (M.showResizeGrip ~= false)
+  if not cv or not (M.draggable or resizing) then return end
   endDrag(false)                         -- never stack sessions
   local okTL, tl = pcall(function() return cv:topLeft() end)
   if not (okTL and tl) then return end
+  local oks, sz = pcall(function() return cv:size() end)
   local m = hs.mouse.absolutePosition()
   drag = { cv = cv, uuid = uuid, elementId = elementId, moved = false,
+           mode = resizing and "resize" or "move",
+           startFont = M.fontSize,
+           startW = (oks and sz and sz.w) or 300, startH = (oks and sz and sz.h) or 200,
            originX = tl.x, originY = tl.y, mouseX = m.x, mouseY = m.y }
 
   local et = hs.eventtap.event.types
@@ -1213,8 +1687,14 @@ local function startDrag(cv, uuid, elementId)
 end
 
 local function onMouse(cv, message, elementId)
+  if message == "mouseEnter" then
+    enterIcon(cv, elementId); return
+  elseif message == "mouseExit" then
+    exitIcon(elementId); return
+  end
   if message == "mouseDown" then
-    if not M.draggable then return end
+    clearHover()                         -- the tip must not survive a drag
+    if not M.draggable and elementId ~= "resize" then return end
     local uuid
     for _, c in ipairs(canvases) do
       if c.cv == cv then uuid = c.uuid break end
@@ -1223,7 +1703,7 @@ local function onMouse(cv, message, elementId)
   elseif message == "mouseUp" then
     -- When dragging is on, the event tap decides click-vs-drag; it also catches
     -- a release that lands after the pointer has left the panel.
-    if M.draggable then return end
+    if M.draggable or drag then return end
     activateElement(elementId)
   end
 end
@@ -1239,6 +1719,22 @@ function M.cycleMode()
   hs.alert.show("Dashboard: " .. M.mode)
 end
 
+-- Resize the whole panel. Every measurement — line height, character width,
+-- icon edge, legend — derives from M.fontSize, so this is the only knob needed.
+-- Clamped, saved, and a no-op at the ends so clicking − at the minimum doesn't
+-- churn a redraw and a file write.
+function M.setFontSize(n)
+  n = math.floor((tonumber(n) or 13) + 0.5)
+  n = math.max(M.minFontSize or 9, math.min(M.maxFontSize or 28, n))
+  if n == M.fontSize then return end
+  M.fontSize = n
+  clearHover()                   -- any tip is sized and placed for the old scale
+  draw()
+  -- Mid-drag this is called once per size step; endDrag() writes the file when
+  -- the grip is released, so don't write it twenty times on the way there.
+  if not (drag and drag.mode == "resize") then pcall(M.saveLayout) end
+end
+
 -- Forget any dragged position and go back to M.corner.
 function M.resetPanelPosition()
   panelPos = {}
@@ -1250,7 +1746,8 @@ end
 draw = function()
   for _, c in ipairs(canvases) do pcall(function() c.cv:delete() end) end
   canvases = {}
-  if not M.visible then return end
+  iconMeta = {}                  -- rebuilt below; ids are per-element and per-draw
+  if not M.visible then clearHover(); return end   -- ⌘⌃⌥D must take the tip with it
 
   local screens = hs.screen.allScreens()
   local multi   = (#screens > 1)
@@ -1279,11 +1776,17 @@ draw = function()
 
   local lineH   = M.fontSize + 6
   local pad     = 12
-  local charW   = M.fontSize * 0.62
+  local charW   = charWidth()
   local statusH = hasStatus and (lineH + 9) or 0
   local legendH = (#legendLines > 0) and (10 + #legendLines * (M.fontSize + 3)) or 0
-  local bodyW   = math.max(M.minWidth - pad * 2, math.ceil(maxChars * charW) + 6)
-  local panelW  = math.min(M.maxWidth, bodyW + pad * 2)
+  -- The grip sits in the bottom-right corner, past the end of the legend, so
+  -- unlike the buttons it replaced it needs no width reserved for it.
+  local zoomW   = 0
+  local wScale  = (M.fontSize or 13) / (M.baseFontSize or 13)
+  local minW    = (M.minWidth or 220) * wScale
+  local maxW    = (M.maxWidth or 760) * wScale
+  local bodyW   = math.max(minW - pad * 2, math.ceil(maxChars * charW) + 6 + zoomW)
+  local panelW  = math.min(maxW, bodyW + pad * 2)
   local panelH  = pad * 2 + totalRows * lineH + math.max(0, #blocks - 1) * M.sectionGap + statusH + legendH
 
   for _, s in ipairs(screens) do
@@ -1336,21 +1839,31 @@ draw = function()
         -- with dots is rendered through styledtext — even all-blank ones — so the
         -- gap is identical on every line and the → arrows stay column-aligned.
         -- It stays a single text element, so the click target is unchanged.
-        local body = e.text
+        local body, styledBody = e.text, nil
         if e.dots and #e.dots > 0 then
           local font  = { name = "Menlo", size = M.fontSize }
           local plain = { font = font, color = { white = 1, alpha = 1 } }
           local gap   = { font = { name = "Menlo", size = math.max(1, math.floor(M.fontSize * 0.5)) } }
+          -- Only the marker and "Desktop N" go magenta; the label keeps its own
+          -- color so a repo name reads the same wherever you are standing.
+          local head = (e.here and M.highlightActive ~= false)
+            and { font = font, color = M.activeColor or { red = 1, green = 0.45, blue = 0.9, alpha = 1 } }
+            or plain
           local ok, styled = pcall(function()
-            local st = hs.styledtext.new(e.prefix, plain)
+            local st = hs.styledtext.new(e.prefix, head)
             for i, d in ipairs(e.dots) do
               if i > 1 then st = st .. hs.styledtext.new(" ", gap) end
               st = st .. hs.styledtext.new(d.ch, { font = font, color = d.color or { white = 1, alpha = 1 } })
             end
             return st .. hs.styledtext.new(e.suffix, plain)
           end)
-          if ok and styled then body = styled end
+          if ok and styled then body, styledBody = styled, styled end
         end
+        -- Every element of a line carries the SAME id, so clicking an app icon
+        -- switches Desktops exactly like clicking its text, and a drag begun on
+        -- an icon moves the panel.
+        local elemId = e.sid and ("go:" .. tostring(e.sid))
+                       or (e.wid and ("term:" .. tostring(e.wid)) or "line")
         cv:appendElements({
           type = "text", text = body,
           textFont = "Menlo", textSize = M.fontSize,
@@ -1359,9 +1872,59 @@ draw = function()
           textColor = e.dim and { white = 0.62, alpha = 1 } or { white = 1, alpha = 1 },
           frame = { x = pad, y = cy, w = panelW - pad * 2, h = lineH },
           trackMouseUp = true, trackMouseDown = true,
-          id = e.sid and ("go:" .. tostring(e.sid))
-               or (e.wid and ("term:" .. tostring(e.wid)) or "line"),
+          id = elemId,
         })
+        -- Icons follow the "→", so they start where the text ends. Measure the
+        -- styled line itself rather than counting characters: it mixes two font
+        -- sizes (the half-space between the dots), so a character count would
+        -- put the row a few px off and it would drift with the dot states.
+        if e.icons then
+          local iconSize, iconGap = iconMetrics()
+          local w
+          if styledBody then
+            local okw, sz = pcall(hs.drawing.getTextDrawingSize, styledBody)
+            w = (okw and type(sz) == "table" and sz.w) or nil
+          end
+          local x  = pad + (w or (uwidth(e.prefix .. e.suffix) + 3) * charW) + iconGap
+          local iy = cy + math.max(0, math.floor((lineH - iconSize) / 2))
+          for _, it in ipairs(e.icons.items) do
+            cv:appendElements({
+              type = "image", image = it.img, imageScaling = "scaleProportionally",
+              frame = { x = x, y = iy, w = iconSize, h = iconSize },
+            })
+            -- All mouse handling for an icon rides on a FULLY TRANSPARENT
+            -- rectangle laid over it. Measured 2026-07-30: an hs.canvas image
+            -- element reports mouseDown/mouseUp but never mouseEnter/mouseExit,
+            -- while a rectangle reports all four — and an alpha-0 one still
+            -- hit-tests. So the rectangle owns both the hover and the click.
+            -- "icon:<space>:<windowid>" normally; "icon:<space>:p<pid>" for an
+            -- app only CoreGraphics could see, where there is no window object
+            -- to raise and the app itself is the best a click can do.
+            local iid = (it.wid and ("icon:" .. tostring(e.sid) .. ":" .. tostring(it.wid)))
+                        or (it.pid and ("icon:" .. tostring(e.sid) .. ":p" .. tostring(it.pid)))
+                        or elemId
+            cv:appendElements({
+              type = "rectangle", action = "fill", fillColor = { white = 0, alpha = 0 },
+              frame = { x = x, y = iy, w = iconSize, h = iconSize },
+              trackMouseEnterExit = (M.showIconTips ~= false),
+              trackMouseUp = true, trackMouseDown = true, id = iid,
+            })
+            if it.wid or it.pid then
+              iconMeta[iid] = { app = it.app, title = it.title,
+                                x = x, y = iy, w = iconSize, h = iconSize }
+            end
+            x = x + iconSize + iconGap
+          end
+          if e.icons.extra > 0 then
+            cv:appendElements({
+              type = "text", text = "+" .. e.icons.extra,
+              textFont = "Menlo", textSize = M.fontSize - 2,
+              textColor = { white = 0.6, alpha = 1 },
+              frame = { x = x, y = cy, w = 40, h = lineH },
+              trackMouseUp = true, trackMouseDown = true, id = elemId,
+            })
+          end
+        end
         cy = cy + lineH
       end
       if bi < #blocks then cy = cy + M.sectionGap end
@@ -1400,9 +1963,34 @@ draw = function()
       end
     end
 
+    -- The resize grip, last so it sits above everything: three diagonal strokes
+    -- in the bottom-right corner, plus the usual transparent rectangle to own
+    -- the drag. Deliberately at the OPPOSITE corner from the panel's anchor, so
+    -- resizing grows the panel away from its top-left and the corner you are
+    -- holding is the one that moves.
+    if M.showResizeGrip ~= false then
+      local g  = math.max(12, math.floor(M.fontSize * 1.1))
+      local gx, gy = panelW - g - 4, panelH - g - 4
+      for i = 1, 3 do
+        local off = (i - 1) * math.max(3, math.floor(g / 4))
+        cv:appendElements({
+          type = "segments", action = "stroke",
+          strokeColor = { white = 1, alpha = 0.30 }, strokeWidth = 1.5,
+          coordinates = { { x = gx + off, y = gy + g }, { x = gx + g, y = gy + off } },
+        })
+      end
+      cv:appendElements({
+        type = "rectangle", action = "fill", fillColor = { white = 0, alpha = 0 },
+        frame = { x = gx - 4, y = gy - 4, w = g + 8, h = g + 8 },
+        trackMouseUp = true, trackMouseDown = true, id = "resize",
+      })
+    end
+
     cv:show()
     canvases[#canvases + 1] = { cv = cv, uuid = uuid }
   end
+
+  refreshTip()                   -- a tip on screen is anchored to a dead canvas
 end
 
 -- ---- public actions -------------------------------------------------------
@@ -1426,8 +2014,17 @@ function M.toggle()
 end
 
 function M.nameCurrent()
-  local scr = hs.mouse.getCurrentScreen() or hs.screen.mainScreen()
-  local sid = safeActiveSpace(scr)
+  -- The Desktop you mean is the one you are WORKING on — the focused Space —
+  -- not the one under the mouse pointer. Those were the same thing until the
+  -- panel could be dragged across a display boundary: with it straddling two
+  -- screens, resting the pointer over the panel put ⌘⌃⌥N on the other display's
+  -- Desktop, so it renamed something you weren't looking at. The mouse is only
+  -- the fallback now.
+  local sid = (function()
+    local ok, s = pcall(hs.spaces.focusedSpace)
+    if ok and s then return s end
+    return safeActiveSpace(hs.mouse.getCurrentScreen() or hs.screen.mainScreen())
+  end)()
   if not sid then hs.alert.show("Couldn't identify the current Desktop"); return end
   local cur = overrides[sid] or labelCache[sid] or ""
   local btn, txt = hs.dialog.textPrompt(
@@ -1495,7 +2092,11 @@ function M.scanAll()
     -- one failed read killed the timer callback, and the walk simply stopped
     -- wherever it happened to be — the reported "it stops on Retina #9".
     scanTimer = hs.timer.doAfter(M.scanDwell, function()
-      pcall(function() labelSpace(snapshot(), item.sid); draw() end)
+      pcall(function()
+        local byId, byCg = snapshot()
+        labelSpace(byId, item.sid, byCg)
+        draw()
+      end)
       step()
     end)
   end
@@ -1515,7 +2116,7 @@ function M.saveLayout()
   -- each autosave blanked every Desktop not visited this session. Measured:
   -- 6 of 12 Desktops had been emptied that way.
   local prev = loadState()
-  local state = { savedAt = os.time(), mode = M.mode, screens = {} }
+  local state = { savedAt = os.time(), mode = M.mode, fontSize = M.fontSize, screens = {} }
   for _, s in ipairs(hs.screen.allScreens()) do
     local key    = s:getUUID() or s:name() or "screen"
     local spaces = safeSpacesForScreen(s)
@@ -1551,6 +2152,13 @@ local function restoreNames()
   if type(state.mode) == "string" and
      (state.mode == "desktops" or state.mode == "terminals" or state.mode == "both") then
     M.mode = state.mode
+  end
+  -- A size you zoomed to should survive a reload, like the position you dragged
+  -- to. Clamped on the way in: the file is editable and a bad value would make
+  -- the panel unusable with no way back except editing it again.
+  local fs = tonumber(state.fontSize)
+  if fs then
+    M.fontSize = math.max(M.minFontSize or 9, math.min(M.maxFontSize or 28, math.floor(fs)))
   end
   if not state.screens then return end
   for _, s in ipairs(hs.screen.allScreens()) do
@@ -1669,6 +2277,8 @@ end
 
 function M.stop()
   endDrag(false)                 -- never leave a mouse tap running
+  clearHover()                   -- nor a tip, nor its poll timer
+  if focusTimer then focusTimer:stop(); focusTimer = nil end
   if refreshTimer  then refreshTimer:stop() end
   if claudeTimer   then claudeTimer:stop() end
   if gitTimer      then gitTimer:stop() end

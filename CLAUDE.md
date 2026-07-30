@@ -231,6 +231,159 @@ claude session (terminals), and everything else contributes normally.
 - **No "last push" time — git doesn't record one.** The popup shows the last *commit* time
   (`log -1 %cd`), which is real; a push timestamp would have to be invented or fetched, so
   it isn't shown.
+- **The active-Desktop marker is a caret AND a color, and the two markers are the same
+  width.** The caret prefix was `"▸ "` against `"   "` for every other line — two cells
+  against three, so the Desktop you were standing on was the one line that didn't line up
+  with the rest. Measured in Menlo 13: `"▸ "` is 15.65 px, `"   "` is 23.48, and `▸` alone
+  is exactly one cell (7.83), so `"▸  "` matches. Do not assume a glyph is one cell wide
+  because the font is monospaced — measure it, as `M.activeMarker`'s comment says. The
+  number also goes magenta (`M.activeColor`), which is the stronger cue in a list of a
+  dozen lines. Both are kept rather than either: color alone excludes anyone who can't
+  separate magenta from white, and this panel already spends four colors on the dots.
+  Magenta is deliberately none of them. Only the marker and `Desktop N` are colored — the
+  label stays white so a repo name reads identically wherever you happen to be.
+- **A label that names apps is replaced by those apps' icons; a label that names work is
+  not.** `detectLabel` returns the KIND of evidence behind the label (`repo` / `cwd` /
+  `app` / `apps` / `none`). `apps` (a bucket — `Utility`, `Communication`) and `app` (one
+  app's own name — `MacDown`) both draw icons, because in both cases the word is only
+  standing in for the apps themselves. `repo` and `cwd` keep their text: they name the
+  work, which no icon can. Icons for the single-app case were withheld at first, on the
+  grounds that `MacDown` already says something — but that was written before the hover
+  tip existed. Once pointing at an icon gives the name back, dropping the word costs
+  nothing and the panel stops treating "one app" and "three apps" as different kinds of
+  thing (asked for and chosen 2026-07-30). Consequence worth knowing: `M.appLabels`
+  (`Claude` → `Claude Chat/Cowork`) now shows only when icons are off or unavailable, so
+  that disambiguation is carried by the icon and the tip instead.
+  `M.showAppIcons = false` restores the words. Icons need a real read of
+  the Desktop (bundle ids come from the window snapshot), so a Desktop whose name was
+  restored from disk shows its old text until it is next scanned — the same constraint
+  every other live detail has.
+- **The icon row is placed by measuring the styled line, not by counting characters.**
+  The line mixes two font sizes (the half-space between the dots), so a character count
+  puts the icons a few px off, and the error changes with the dot states — the row would
+  visibly shift as sessions started and stopped.
+  `hs.drawing.getTextDrawingSize(styledtext)` measures the object actually drawn. Width
+  is still budgeted in characters (`iconTextPad`) because that is the unit the panel
+  sizes itself in. Dragging from an icon moves the panel exactly as from the text; each
+  icon carries its OWN element id (`icon:<sid>:<wid>`) rather than the line's, because a
+  click on an icon means something more specific than a click on the line — see below.
+- **Some apps are invisible to Accessibility, so CoreGraphics is a second window source.**
+  Measured 2026-07-30: the Claude desktop app returns **nil for every AX attribute** — no
+  role, no `AXWindows`, nothing — and ChatGPT Classic likewise exposes no window. A Desktop
+  holding both therefore read as empty (`—`) however many windows were on it, and the
+  natural assumption (reported as such) was that some rule of ours was hiding them. It was
+  not: `noRepoHintApps` only withholds an app's *title* from repo matching, and the app
+  still counts toward the subject — if a window can be seen at all. `snapshot()` now also
+  indexes `hs.window.list(true)` (CoreGraphics), and `readSpaceFrom` falls back to it for
+  any window id Accessibility couldn't resolve. Same discipline as `allWindows()`: ~14 ms,
+  ONCE per read pass, never per window.
+  - **Layer 0 only.** CoreGraphics lists everything on screen — menu-bar extras, Spotlight,
+    Control Center, the Dock, us — all at layer 24/25. Layer 0 is an ordinary application
+    window, and the filter is what makes the fallback usable rather than noise.
+  - **It is on-screen only**, so it resolves nothing for a Space you aren't viewing. That
+    costs nothing: the active Space is the only one macOS lets us read anyway.
+  - **These windows contribute an ICON and nothing else.** CoreGraphics gives an owner and
+    a pid — no title, no `AXDocument` — so they can never touch repo detection, and there
+    is no window object to raise. Clicking one activates the *application* instead, which
+    is why an icon id can be `icon:<space>:p<pid>` as well as `icon:<space>:<windowid>`.
+- **A line is a NAME and an ICON ROW, and they answer different questions.** The name says
+  what the Desktop is *for*; the icons say what is *on* it. Because they are independent,
+  ⌘⌃⌥N replaces the name and leaves the icons alone — renaming a Desktop cannot change
+  which apps are sitting on it, and the old behaviour (an override suppressed the icons
+  entirely) threw away a fact to honour a label. The name is empty only when the icons are
+  standing in for a word that itself named apps (`Utility`, `MacDown`); a repo or session
+  directory keeps its text and the icons follow it (asked for 2026-07-30).
+- **Finder and terminals get icons, always last.** They are in `ignoreApps` because a
+  Desktop is never *about* Finder — that is a statement about the SUBJECT, not about
+  whether they are worth showing. "There is a Finder and two terminals here" is real
+  information, so they are collected separately (`extras`) and appended after the subject
+  apps, which keeps the row reading subject-first. Hammerspoon stays out: it is this
+  panel. The terminal list is taken from `M.claudeOnlyHintApps` rather than duplicated, so
+  adding your terminal in one place is enough.
+- **A terminal icon is dropped from a Desktop named after a repo or a session directory.**
+  That name came from the terminal's own working directory, so its icon would say the
+  same thing twice — and the icons exist to add what the name can't. Finder is never
+  redundant that way, so it stays. The test is the detection KIND (`repo`/`cwd`), not the
+  displayed text, so a ⌘⌃⌥N rename doesn't quietly bring the terminal back.
+- **Trailing icons never count toward the "enough icons to drop the word" threshold.**
+  `list.lead` records how many entries are subject apps and only those are counted against
+  `list.min`. Otherwise a Finder window could be the second icon that lets a three-app
+  Desktop lose the word `Utility` while one of its apps had no resolvable icon — the exact
+  misrepresentation the threshold exists to prevent.
+- **Resizing scales `M.fontSize`, because everything else is derived from it.** Line
+  height, character width, icon edge, legend size and the width bounds all come from it,
+  so one number resizes the panel coherently. There is no free aspect ratio to preserve —
+  the panel's shape follows its content — so the corner drag is projected onto the
+  diagonal (`((startW+dx) + (startH+dy)) / (startW+startH)`) and turned into a size. Both
+  axes contribute, so dragging out along either one grows it. Integer sizes mean ~20
+  redraws across a full drag rather than one per pixel, and `setFontSize` skips its file
+  write mid-drag because `endDrag` writes once on release.
+  - **The grip is at the corner OPPOSITE the panel's anchor.** The panel is positioned by
+    its top-left, so growing it from the bottom-right keeps the corner you're holding the
+    one that moves.
+  - **`draw()` replaces every canvas, including the one being dragged**, so the resize
+    branch re-points `drag.cv` at the successor by screen UUID after each step. Without
+    that the next move acts on a deleted object.
+  - This replaced a pair of −/+ buttons (v39). They worked, but one point per click across
+    a useful range is tedious — which is the objection to any stepper, and was the reported
+    complaint. Their width also had to be reserved out of the panel's top-right corner; the
+    grip sits past the end of the legend and costs nothing.
+- **⌘⌃⌥N renames the FOCUSED Space, not the one under the pointer.** They were the same
+  thing until the panel could be dragged across a display boundary. With it straddling two
+  screens, resting the pointer over the panel meant `hs.mouse.getCurrentScreen()` returned
+  the *other* display, so ⌘⌃⌥N silently offered to rename a Desktop you weren't looking at.
+  `hs.spaces.focusedSpace()` is where you are working; the mouse is the fallback.
+- **`minWidth`/`maxWidth` are px at `M.baseFontSize` and scale from there.** A flat px cap
+  stops meaning anything once the panel can be zoomed: at 20 pt a long repo name plus its
+  icon row needs ~990 px, so the fixed 760 cap silently cut the icons off the right-hand
+  end — measured 2026-07-30, and visible only because the icons made the truncation
+  obvious where clipped text had been easy to miss.
+- **An hs.canvas IMAGE element never reports mouseEnter/mouseExit, so every icon carries
+  a transparent rectangle.** Measured 2026-07-30 with identical frames and identical
+  tracking flags: an `image` element reports `mouseDown`/`mouseUp` but neither enter nor
+  exit, while a `rectangle` reports all four — and a rectangle with `alpha = 0` still
+  hit-tests. So all mouse handling for an icon lives on an invisible rectangle laid over
+  it, and the image element is left untracked. If hover ever stops working, check this
+  first; it is not something the documentation states.
+- **Naming an icon beats enlarging it.** The icons replace a label for Desktops that are
+  a mix of apps, which is exactly where the less-used apps live — and a bigger version of
+  an icon you didn't recognise is still an icon you don't recognise. The tip gives the app
+  name and, on a second dimmed line, the title of the window a click would raise, so you
+  can tell two windows of the same app apart before committing to the switch.
+- **The tip is re-placed by `draw()`, not left to the next mouseEnter.** `draw()` deletes
+  and rebuilds every canvas, which orphans a visible tip on a dead element — and no fresh
+  mouseEnter arrives while the pointer sits still, so the tip would simply vanish every
+  time a dot changed (a 3 s timer). `refreshTip()` runs at the end of `draw()` and re-places
+  it if the same icon still exists. A *pending* tip timer needs nothing: when it fires it
+  reads the new canvases anyway.
+- **A poll guards against the mouseExit that never comes.** Deleting a canvas under the
+  pointer can swallow the exit, which would pin a tip on screen permanently. `tipWatch`
+  checks every 0.4 s that the pointer is still inside the hovered icon's rect — and runs
+  only while a tip is actually showing, so it costs nothing the rest of the time.
+- **Clicking an icon raises that window; clicking the line does not.** Arriving on a
+  Desktop should normally leave it as you left it, so the line stays "take me there".
+  Picking an icon is the only way to say *which* window you want, which is what makes the
+  icon row worth pointing at. The window is re-resolved by id at click time
+  (`hs.window.get`) rather than reusing the object captured during the read: that object
+  may be minutes old and its app long gone, and only once the Space is active is the
+  lookup reliable. `hs.window.get` is the ~40 ms call banned from the read path — one
+  click can afford it, a per-window loop cannot. The raise waits `M.iconFocusDelay` for
+  the Space switch to finish; firing into a half-finished switch does nothing.
+- **How many icons a row needs depends on what it replaces (`list.min`).** A single-app
+  Desktop draws its one icon — the word it replaces is that app's name, which the tip
+  gives straight back. A MIXED Desktop still needs two: one icon there would assert the
+  other apps aren't present, and `Utility` is at least honest about being a summary. So
+  the threshold is recorded per Desktop when it is read, not hardcoded in the renderer.
+  Icons are memoized per bundle id (`false` records "has no icon") since `draw()` rebuilds
+  every canvas and app icons do not change while Hammerspoon runs.
+- **An empty dot slot goes gray whenever the line shows any live dot.** The two dots are
+  told apart only by position — claude first, git second — and position is unreadable
+  when one column is blank: a lone green git dot in slot 2 reads as a claude dot saying
+  "finished". The gray placeholder holds the column open and names the other by
+  elimination. It is deliberately NOT unconditional: a gray pair on every Desktop with
+  nothing to report would be two columns of noise, so a line with no live dot keeps blank
+  spacers. The rule is symmetric, so a session in `~` (claude dot, no git dot) gets the
+  same treatment in reverse.
 - **Both dots share one styledtext element.** An entry now carries an ordered `dots` list
   ({ch,color}, claude then git); `draw()` builds `prefix .. dot1 .. dot2 .. suffix` as a
   single `hs.styledtext`, so the click target and sizing (`e.text`) are unchanged and a
