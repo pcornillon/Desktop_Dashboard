@@ -64,7 +64,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v40 (CoreGraphics finds apps Accessibility cannot see; drag-corner resize, 2026-07-30)"
+M.version = "v41 (⌘⌃⌥d hides one display, not both, 2026-07-30)"
 
 -- ============================ CONFIG ============================
 
@@ -354,6 +354,7 @@ M.legendLines = {
 
 local canvases   = {}          -- { { cv = canvas, uuid = screenUUID }, ... }
 local panelPos   = {}          -- screen UUID -> { x =, y = } once dragged
+local hiddenScreens = {}       -- screen UUID -> true when that display's panel is hidden
 local drag       = nil         -- in-flight drag session, nil when idle
 local dragTap, dragWatchdog
 local labelCache = {}          -- spaceID -> label string
@@ -1789,7 +1790,15 @@ draw = function()
   local panelW  = math.min(maxW, bodyW + pad * 2)
   local panelH  = pad * 2 + totalRows * lineH + math.max(0, #blocks - 1) * M.sectionGap + statusH + legendH
 
+  -- Which displays get a panel. The content above still describes every screen,
+  -- so hiding one display's panel does not remove its Desktops from the list.
+  local drawScreens = {}
   for _, s in ipairs(screens) do
+    local uuid = s:getUUID()
+    if not (uuid and hiddenScreens[uuid]) then drawScreens[#drawScreens + 1] = s end
+  end
+
+  for _, s in ipairs(drawScreens) do
     local f = s:frame()
     local uuid = s:getUUID()
     local x, y
@@ -2008,9 +2017,35 @@ local function debouncedRefresh()
   end)
 end
 
+-- ⌘⌃⌥D hides ONE display's panel — the one the mouse is on — rather than all of
+-- them. With two screens the panel is drawn on each, and wanting it gone from
+-- the screen you are working on does not mean wanting it gone everywhere. Press
+-- again on that screen to bring it back; M.showAll() restores every display.
 function M.toggle()
-  M.visible = not M.visible
+  local scr = hs.mouse.getCurrentScreen() or hs.screen.mainScreen()
+  local uuid = scr and scr:getUUID()
+  if not uuid then                       -- no screen identity: fall back to all-or-nothing
+    M.visible = not M.visible
+    clearHover(); draw(); return
+  end
+  hiddenScreens[uuid] = (not hiddenScreens[uuid]) or nil
+  M.visible = true                       -- a per-screen hide must not leave the master off
+  clearHover()
+  pcall(M.saveLayout)
   draw()
+  local msg = hiddenScreens[uuid]
+    and ("Dashboard hidden on " .. (scr:name() or "this display"))
+    or  ("Dashboard shown on " .. (scr:name() or "this display"))
+  if not pcall(hs.alert.show, msg, nil, scr, 1.2) then pcall(hs.alert.show, msg) end
+end
+
+-- Bring every display's panel back, whichever way it was hidden.
+function M.showAll()
+  hiddenScreens = {}
+  M.visible = true
+  pcall(M.saveLayout)
+  draw()
+  hs.alert.show("Dashboard shown on all displays")
 end
 
 function M.nameCurrent()
@@ -2139,7 +2174,8 @@ function M.saveLayout()
       }
     end
     state.screens[key] = { name = s:name() or "", desktops = desktops,
-                           panel = panelPos[key] }
+                           panel = panelPos[key],
+                           hidden = hiddenScreens[key] or nil }
   end
   saveState(state)
 end
@@ -2168,6 +2204,7 @@ local function restoreNames()
        and tonumber(saved.panel.x) and tonumber(saved.panel.y) then
       panelPos[key] = { x = tonumber(saved.panel.x), y = tonumber(saved.panel.y) }
     end
+    if saved and saved.hidden == true then hiddenScreens[key] = true end
     if saved and saved.desktops then
       local spaces = safeSpacesForScreen(s)
       for i, sid in ipairs(spaces) do

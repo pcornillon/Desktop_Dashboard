@@ -176,7 +176,7 @@ restarting Hammerspoon to load the config, works from a shell.
 | Shortcut | Action |
 |----------|--------|
 | Click a line | Switch to that Desktop |
-| ⌘⌃⌥ d | Show / hide the dashboard |
+| ⌘⌃⌥ d | Show / hide the panel **on the display your mouse is on** |
 | ⌘⌃⌥ n | Name the current Desktop yourself |
 | ⌘⌃⌥ r | Restore the saved window layout (move/open windows to match) |
 | ⌘⌃⌥ s | Visit every Desktop once and label the ones you haven't named |
@@ -192,6 +192,12 @@ Behind the scenes a scan still works out the automatic label for a Desktop you'v
 it just doesn't show it. So clearing your name reveals a current label, not a stale one —
 and the session dot keeps working, because it follows the detected repo rather than the
 name you typed.
+
+**Hiding is per display.** With two screens the panel is drawn on each, so ⌘⌃⌥D hides
+only the one your mouse is on — press again there to bring it back, or call
+`dd.showAll()`. The hidden display's Desktops are still *listed* in the panel that
+remains, so you lose the panel, not the information. Which display you keep doesn't much
+matter, since you can drag the survivor wherever you want it.
 
 **Dragging.** Press anywhere on the panel and drag it where you like. Each display
 remembers its own position, and it survives a reload. A press that moves less than a few
