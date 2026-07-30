@@ -25,12 +25,16 @@ The module returns a table `M` with a `CONFIG` block at the top and `M.start()` 
   `detectLabel(funcs, ctx)` decides the label.
 - **Drawing** — `draw()` renders one `hs.canvas` per screen, `canJoinAllSpaces` so it
   shows everywhere; clickable per‑Desktop lines; a status line during scans; a legend.
-- **Reads** — `scanActive()` (visible Desktops), `M.scanAll()` (⌘⌃⌥S, walks all),
+- **Reads** — `scanActive()` (visible Desktops), `M.scanAll()` (⌘⌃⌥s, walks all),
   event‑driven refresh via an `hs.window.filter` on create/destroy (debounced), plus a
   space watcher, screen watcher, and a periodic backstop timer.
+- **Dots** — `refreshClaudeStates()` (session dot, from Terminal titles + hook files) and
+  `refreshGitStates()` (git dot, local `git` status for every repo) both run async via
+  `hs.task` on their own timers. `M.scanGitHub()` (⌘⌃⌥g) is the on-demand GitHub popup —
+  `git ls-remote` for the shown repos, rendered in an `hs.webview`.
 - **Persistence** — `M.saveLayout()` writes names + window lists to
   `~/.hammerspoon/desktop_dashboard_state.json` keyed by screen + Desktop position;
-  `restoreNames()` reloads names on launch; `M.restoreLayout()` (⌘⌃⌥R) moves/opens
+  `restoreNames()` reloads names on launch; `M.restoreLayout()` (⌘⌃⌥r) moves/opens
   windows to match a saved layout (best effort).
 - `M.version` is printed on load — bump it on every change so a stale file is obvious.
 
@@ -64,7 +68,7 @@ claude session (terminals), and everything else contributes normally.
 - **Hammerspoon as runtime.** Free, notarized, no SIP, and exposes `hs.spaces`,
   `hs.window`, `hs.canvas`, and space/window watchers — everything needed.
 - **Read a Desktop only while it's active.** macOS Accessibility cannot read the windows
-  of a Space you're not viewing. So detection reads the visible Space(s); ⌘⌃⌥S walks all
+  of a Space you're not viewing. So detection reads the visible Space(s); ⌘⌃⌥s walks all
   Spaces to fill them in. Passive "read every Space without visiting" was tried and does
   not work without SIP‑off — do not reintroduce it.
 - **One `allWindows()` snapshot per read; never `hs.window.get()` per id.** THE
@@ -102,7 +106,7 @@ claude session (terminals), and everything else contributes normally.
   "a file belonging to this repo" from "a file whose name resembles this repo", and the
   editor was not in `docApps`, so no real path was available to check. If you tighten
   this, do it with a path (rule 1), not by pattern-matching the title harder. Until
-  then, a mixed Desktop like that is what ⌘⌃⌥N manual naming is for.
+  then, a mixed Desktop like that is what ⌘⌃⌥n manual naming is for.
 - **`M.appLabels` renames the single-app case.** Rule 4 returns the bare process name
   when one app owns the Desktop, which makes `Claude` ambiguous with `claude` in a
   terminal; the override displays `Claude Chat/Cowork`. Categories can't do this — a
@@ -113,7 +117,7 @@ claude session (terminals), and everything else contributes normally.
   so a repo created after Hammerspoon loaded its config was invisible to rules 2 and 3
   until the next Reload Config — the Desktop showed `—` or a bare app name however
   clearly its titles named the repo. `refreshRepos()` re-lists on an
-  `M.repoRescanSeconds` TTL from `scanActive()`; ⌘⌃⌥S always reloads. A dir listing plus
+  `M.repoRescanSeconds` TTL from `scanActive()`; ⌘⌃⌥s always reloads. A dir listing plus
   a stat per entry is negligible next to the `allWindows()` call each read already pays.
 - **Compare repo paths case-insensitively.** macOS volumes are normally
   case-insensitive, so a `repoRoots` entry of `~/Git_repos` lists `~/Git_Repos` happily
@@ -176,7 +180,7 @@ claude session (terminals), and everything else contributes normally.
   carry a dot either — reported 2026-07-29. The dot's repo-membership test went with it:
   the key already has to match a live session's cwd, and a session in `~` is as real as one
   in a repo. Fires only when no repo matched, so nothing that previously worked changes.
-- **The dot is looked up by the DETECTED label, never the displayed one.** A ⌘⌃⌥N name
+- **The dot is looked up by the DETECTED label, never the displayed one.** A ⌘⌃⌥n name
   replaces what the panel shows but not what the Desktop is; session state is keyed by repo
   name, so matching on the displayed string meant every renamed Desktop silently lost its
   dot — and never cleared its green flag either, since `acknowledgeSids` had the same fault.
@@ -207,10 +211,34 @@ claude session (terminals), and everything else contributes normally.
   the same query issued synchronously blocked long enough to time out Hammerspoon's own
   IPC — precisely the class of stall that `docApps` and the single-snapshot rule exist to
   prevent. Redraw only when a dot actually changed; `draw()` rebuilds every canvas.
+- **The git dot is local-only; the network half is a separate keypress.** The dot
+  (`refreshGitStates` → `gitStateFor`, second in each entry's `dots` list) answers one
+  offline question: does GitHub have everything on this machine? RED = dirty tree OR
+  unpushed commits, GREEN = clean and pushed — `git status --porcelain` plus
+  `rev-list @{u}..HEAD`, no network. "Has GitHub itself changed?" is deliberately NOT on
+  the dot: it can't be known without contacting GitHub, and the answer goes stale the
+  moment anyone pushes — a dot must not assert what it hasn't checked. So GitHub state
+  lives in the ⌘⌃⌥g popup (`M.scanGitHub`), which is the only thing here that touches the
+  network, and only when pressed, and only for the repos currently shown (`displayedRepos`).
+- **⌘⌃⌥g uses `git ls-remote`, not `fetch`.** ls-remote reads the remote head SHA without
+  downloading objects or updating any local ref, so it never changes what `git status`
+  shows in the user's own terminal — the light touch they asked for. Cost: it gives a
+  yes/no "GitHub differs", not an exact behind-count. Classification compares the remote
+  SHA to `HEAD`: equal → up to date; remote is an ancestor of HEAD → unpushed only; else →
+  "GitHub ahead" (which also covers a true divergence, where the remote SHA isn't even in
+  the local object store). `GIT_TERMINAL_PROMPT=0` + an `M.githubTimeout` watchdog mean a
+  remote that needs credentials fails fast instead of hanging the query.
+- **No "last push" time — git doesn't record one.** The popup shows the last *commit* time
+  (`log -1 %cd`), which is real; a push timestamp would have to be invented or fetched, so
+  it isn't shown.
+- **Both dots share one styledtext element.** An entry now carries an ordered `dots` list
+  ({ch,color}, claude then git); `draw()` builds `prefix .. dot1 .. dot2 .. suffix` as a
+  single `hs.styledtext`, so the click target and sizing (`e.text`) are unchanged and a
+  blank (uncolored) dot is just a spacer that keeps the arrows aligned.
 - **Single app → app name; shared subject → category.** A category should only appear
   when it's actually grouping more than one app. `Mail` alone is `Mail`; `Mail` + `Slack`
   is `Communication`.
-- **Manual names are overrides.** ⌘⌃⌥N sets a name that wins over auto‑detection; blank
+- **Manual names are overrides.** ⌘⌃⌥n sets a name that wins over auto‑detection; blank
   clears it. Kept by Space ID in‑session (so reordering Desktops moves names with their
   Space) and by screen+position on disk (so they survive a reboot, since Space IDs don't).
 - **Event‑driven refresh, debounced.** An `hs.window.filter` on create/destroy triggers a
@@ -226,7 +254,7 @@ claude session (terminals), and everything else contributes normally.
 
 - **Keep a live reference to any `hs.timer.doAfter` whose callback must run.** A pending
   timer with nothing referencing it can be garbage-collected before it fires — no error,
-  no log, it just never happens. The ⌘⌃⌥S walk chains one `doAfter` per Desktop, and
+  no log, it just never happens. The ⌘⌃⌥s walk chains one `doAfter` per Desktop, and
   with no reference held it died at a different Desktop every run (observed: #1, #5, #6,
   #9). It surfaced only once the claude dot began allocating on a 3 s timer, which raised
   GC pressure enough to collect the pending step mid-walk. `scanTimer` holds it now.
@@ -253,7 +281,7 @@ claude session (terminals), and everything else contributes normally.
 ## Testing
 
 There's no automated suite (it's live‑GUI behavior). To sanity‑check a change: Reload
-Config, confirm the `vNN loaded` line, press ⌘⌃⌥S, then open/close a repo file and a
+Config, confirm the `vNN loaded` line, press ⌘⌃⌥s, then open/close a repo file and a
 non‑repo app on a Desktop and confirm the label updates within ~1 s. If a Desktop stalls,
 the per‑app / per‑window timing probes in the project history are the way to pinpoint the
 slow call — the culprit is almost always a slow Accessibility read of one app.

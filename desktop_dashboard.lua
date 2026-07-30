@@ -13,7 +13,7 @@
   active Space on each display) — which is cheap and reliable — and caches
   each Desktop's label. That means:
     • A Desktop is labeled the moment you switch to it, and the label sticks.
-    • ⌘⌃⌥S walks every Desktop, reading each as it becomes active, to fill
+    • ⌘⌃⌥s walks every Desktop, reading each as it becomes active, to fill
       them all in at once.
     • Names from your last session are restored on launch, so Desktops you
       haven't visited yet still show their previous name immediately.
@@ -30,22 +30,30 @@
         dd.start()
   5. Hammerspoon menubar (hammer icon) → Reload Config.
 
-  CONTROLS
+  CONTROLS  (the letters are LOWERCASE — the binds are cmd+ctrl+alt+<key>,
+             so adding shift, i.e. an uppercase letter, does NOT trigger them)
   --------
   • Click a line — switch to that Desktop.
-  • ⌘⌃⌥ D — show / hide the dashboard.
-  • ⌘⌃⌥ N — name the current Desktop (blank clears it).
-  • ⌘⌃⌥ R — restore the saved window layout (move/open windows).
-  • ⌘⌃⌥ S — walk every Desktop once and label them all.
-  • ⌘⌃⌥ M — cycle what the panel lists: Desktops / claude sessions / both.
+  • ⌘⌃⌥ d — show / hide the dashboard.
+  • ⌘⌃⌥ n — name the current Desktop (blank clears it).
+  • ⌘⌃⌥ r — restore the saved window layout (move/open windows).
+  • ⌘⌃⌥ s — walk every Desktop once and label them all.
+  • ⌘⌃⌥ m — cycle what the panel lists: Desktops / claude sessions / both.
+  • ⌘⌃⌥ g — pop up each shown repo's GitHub status (on demand; queries the
+            network only when pressed).
   • Drag the panel to move it; its position is remembered per display.
+
+  Every panel line whose label is a repo also carries a git dot: RED if this
+  machine has something GitHub doesn't (uncommitted changes or unpushed
+  commits), GREEN if it is clean and fully pushed. That check is local/offline;
+  ⌘⌃⌥ g is what reaches out to GitHub.
 
   Names + window layout auto-save (periodically and at logout/shutdown) to
   ~/.hammerspoon/desktop_dashboard_state.json.
 ============================================================]]--
 
 local M = {}
-M.version = "v32 (a live session outranks repo names found in prose, 2026-07-29)"
+M.version = "v34 (half-space gap between the claude and git dots, 2026-07-30)"
 
 -- ============================ CONFIG ============================
 
@@ -130,6 +138,34 @@ M.claudeDotColors  = {
   waiting = { red = 1.00, green = 0.28, blue = 0.26, alpha = 1 },   -- red: wants you
   done    = { red = 0.30, green = 0.85, blue = 0.40, alpha = 1 },   -- green: finished, unseen
 }
+
+-- GIT STATUS DOT — a second dot, right after the Claude dot, on every panel line
+-- whose label is one of your repos (a folder under M.repoRoots). It says whether
+-- THIS machine is in sync with GitHub, and nothing more subtle:
+--   RED   = GitHub does not have everything here — a dirty working tree
+--           (uncommitted/untracked changes) OR local commits not yet pushed.
+--   GREEN = clean working tree AND all commits pushed.
+-- The check is purely LOCAL/OFFLINE (git status --porcelain + rev-list @{u}..HEAD),
+-- run in one hs.task pass on its own timer, so it never blocks and never touches
+-- the network. GitHub's own state is deliberately NOT folded in here: it would go
+-- stale the moment someone pushed, and a dot cannot honestly show what it hasn't
+-- checked. ⌘⌃⌥g queries GitHub on demand and shows it in a popup instead.
+-- A folder under repoRoots that is not a git repo gets no dot. App/category
+-- labels (Mail, Utility) are not repos, so they get no dot either.
+M.showGitDot    = true
+M.gitDotChar    = "●"
+M.gitDotSeconds = 15             -- how often local git status is re-read (offline)
+M.gitDotColors  = {
+  changed = { red = 1.00, green = 0.28, blue = 0.26, alpha = 1 },   -- red: local ≠ GitHub
+  clean   = { red = 0.30, green = 0.85, blue = 0.40, alpha = 1 },   -- green: in sync
+}
+
+-- ⌘⌃⌥g — GitHub status popup, ON DEMAND ONLY. Nothing hits the network until you
+-- press it; then it queries just the repos currently on the panel. Light touch:
+-- `git ls-remote` reads the remote head SHA without fetching or mutating any
+-- local ref, so it never disturbs what `git status` shows in your own terminal.
+M.githubHotkey  = { mods = {"cmd","ctrl","alt"}, key = "g" }
+M.githubTimeout = 20             -- seconds before a slow/hung GitHub query is killed
 
 M.categories = {
   ["Mail"] = "Communication", ["Microsoft Outlook"] = "Communication",
@@ -223,8 +259,8 @@ M.showLegend  = true
 -- Split across two lines on purpose: the legend is the widest thing in the
 -- panel in Desktops mode, so appending to one line widens the whole panel.
 M.legendLines = {
-  "⌘⌃⌥  S scan · D hide · N name",
-  "     R restore · M mode",
+  "⌘⌃⌥  s scan · d hide · n name",
+  "     r restore · m mode · g GitHub",
   "click a line to switch Desktops",
 }
 
@@ -247,6 +283,9 @@ local sessionDone  = {}        -- Terminal window id -> finished, unacknowledged
 local claudePrev   = {}        -- previous sample, for spotting working -> idle
 local claudeDone   = {}        -- repo name -> true: finished, not yet acknowledged
 local claudeStatesAt, claudeTask, claudeTimer = 0, nil, nil
+local gitStates    = {}        -- repo name (lowercased) -> "changed" | "clean"
+local gitStatesAt, gitTask, gitTimer = 0, nil, nil
+local ghTask, ghWatchdog, ghWebview     -- ⌘⌃⌥g: in-flight query, its kill timer, popup
 local refreshTimer, autosaveTimer, spaceWatcher, screenWatcher, winWatcher, debounceTimer
 -- Holds the ⌘⌃⌥S walk's pending step. MUST be a live reference: an hs.timer
 -- with nothing referencing it can be garbage-collected before it fires, which
@@ -283,7 +322,7 @@ local function loadRepos()
           local p = root .. "/" .. name
           local a = hs.fs.attributes(p)
           if a and a.mode == "directory" then
-            repos[#repos + 1] = { name = name, norm = normalize(name), tokens = tokenSet(name) }
+            repos[#repos + 1] = { name = name, path = p, norm = normalize(name), tokens = tokenSet(name) }
           end
         end
       end
@@ -529,6 +568,70 @@ local function refreshClaudeStates()
   if ok and t then claudeTask = t; t:start() end
 end
 
+-- ---- git status dot (local/offline) ---------------------------------------
+
+-- Single-quote a path for safe embedding in the /bin/sh script below.
+local function shQuote(s) return "'" .. tostring(s):gsub("'", "'\\''") .. "'" end
+
+-- A stable fingerprint of the git dots, so we only redraw when one changes.
+local function gitDotKey()
+  local keys = {}
+  for k, v in pairs(gitStates) do keys[#keys + 1] = k .. "=" .. v end
+  table.sort(keys)
+  return table.concat(keys, ",")
+end
+
+-- Local git status for every known repo, in ONE sh pass so a dozen repos cost
+-- one hs.task rather than a dozen. Purely offline: `status --porcelain` for a
+-- dirty tree, `rev-list @{u}..HEAD` for unpushed commits. A folder under
+-- repoRoots that is not a git repo prints "none" and gets no dot.
+-- GIT_TERMINAL_PROMPT=0 guarantees a mis-set remote can never pop a credential
+-- prompt and hang the task. Only one %s (the path list); every other % is %%.
+local GIT_LOCAL_SNIPPET = [[
+export GIT_TERMINAL_PROMPT=0
+export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
+for d in %s; do
+  if git -C "$d" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    dirty=$(git -C "$d" status --porcelain 2>/dev/null)
+    ahead=$(git -C "$d" rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)
+    if [ -n "$dirty" ] || [ "${ahead:-0}" != "0" ]; then st=changed; else st=clean; fi
+  else
+    st=none
+  fi
+  printf '%%s\t%%s\n' "$d" "$st"
+done
+]]
+
+local function refreshGitStates()
+  if not M.showGitDot then gitStates = {}; return end
+  if gitTask then return end                         -- one request in flight
+  local now = hs.timer.secondsSinceEpoch()
+  if now - gitStatesAt < (M.gitDotSeconds or 15) * 0.5 then return end
+  gitStatesAt = now
+  if #repos == 0 then return end
+  local parts, nameOf = {}, {}
+  for _, r in ipairs(repos) do
+    if r.path then parts[#parts + 1] = shQuote(r.path); nameOf[r.path] = tostring(r.name):lower() end
+  end
+  if #parts == 0 then return end
+  local script = string.format(GIT_LOCAL_SNIPPET, table.concat(parts, " "))
+  local ok, t = pcall(hs.task.new, "/bin/sh", function(_, stdout, _)
+    gitTask = nil
+    local fresh = {}
+    for line in tostring(stdout or ""):gmatch("[^\n]+") do
+      local p, st = line:match("^(.*)\t(%S+)$")
+      if p and st and st ~= "none" then
+        local key = nameOf[p]
+        if key then fresh[key] = st end
+      end
+    end
+    local before = gitDotKey()
+    gitStates = fresh
+    if gitDotKey() ~= before then pcall(draw) end
+  end, { "-c", script })
+  if ok and t then gitTask = t; t:start() end
+end
+
 local function categorize(app)
   if M.categories[app] then return M.categories[app] end
   for _, r in ipairs(M.categoryPatterns) do
@@ -718,6 +821,7 @@ end
 local function scanActive()
   refreshRepos()
   refreshClaudeStates()
+  refreshGitStates()
   local byId = snapshot()
   local sids = activeSids()
   for _, sid in ipairs(sids) do labelSpace(byId, sid) end
@@ -761,7 +865,29 @@ local function claudeStateFor(label)
   return nil
 end
 
--- One line per live claude session: "T1 ● project — summary".
+-- The git dot for a label: "changed" (red), "clean" (green), or nil (the label
+-- is not one of your repos, or its status has not been read yet). Looked up by
+-- the DETECTED repo, exactly like claudeStateFor, so a ⌘⌃⌥N rename keeps its dot.
+local function gitStateFor(label)
+  if not M.showGitDot then return nil end
+  local key = tostring(label or ""):lower()
+  if key == "" then return nil end
+  return gitStates[key]
+end
+
+-- A dot descriptor for the styledtext renderer: a glyph plus the colour it
+-- should be drawn in (nil colour => a blank spacer, so lines stay aligned).
+local function claudeDotSpec(state)
+  local ch = state and (M.claudeDotChar or "●") or " "
+  return { ch = ch, color = state and (M.claudeDotColors or {})[state] or nil }
+end
+local function gitDotSpec(state)
+  local ch = state and (M.gitDotChar or "●") or " "
+  return { ch = ch, color = state and (M.gitDotColors or {})[state] or nil }
+end
+
+-- One line per live claude session: "T1 ●● project — summary" (claude dot,
+-- then git dot).
 --
 -- Yellow and green are per session, because the spinner is read from that
 -- window's own title. Red is per repo: the hooks record a session id and a cwd,
@@ -777,7 +903,8 @@ local function sessionEntries()
       elseif claudeHooks[key] == "waiting" then state = "waiting"
       elseif sessionDone[s.wid] then state = "done" end
     end
-    local dot = state and (M.claudeDotChar or "●") or " "
+    local dots = { claudeDotSpec(state), gitDotSpec(gitStateFor(s.project)) }
+    local mid  = dots[1].ch .. " " .. dots[2].ch     -- " " ≈ the half-gap, for width sizing
     local summary = tostring(s.summary or "")
     local lim = M.sessionSummaryChars or 20
     if uwidth(summary) > lim then summary = summary:sub(1, lim) .. "…" end
@@ -786,31 +913,31 @@ local function sessionEntries()
 
     if M.sessionTwoLine then
       entries[#entries + 1] = {
-        wid = s.wid, state = state, dot = dot,
-        prefix = prefix, suffix = project, text = prefix .. dot .. project,
+        wid = s.wid, dots = dots,
+        prefix = prefix, suffix = project, text = prefix .. mid .. project,
       }
       if summary ~= "" then
         -- Indented past where the project name starts, and dimmed, so the pair
         -- reads as one item rather than two. Carries the same window id, so
-        -- either line can be clicked.
-        local indent = string.rep(" ", uwidth(prefix) + 1 + (M.sessionSummaryIndent or 5))
+        -- either line can be clicked. +2 to clear both dots.
+        local indent = string.rep(" ", uwidth(prefix) + 2 + (M.sessionSummaryIndent or 5))
         local line2  = indent .. summary
         entries[#entries + 1] = {
-          wid = s.wid, state = nil, dot = " ", dim = true,
+          wid = s.wid, dots = {}, dim = true,
           prefix = line2, suffix = "", text = line2,
         }
       end
     else
       local suffix = project .. (summary ~= "" and ("  " .. summary) or "")
       entries[#entries + 1] = {
-        wid = s.wid, state = state, dot = dot,
-        prefix = prefix, suffix = suffix, text = prefix .. dot .. suffix,
+        wid = s.wid, dots = dots,
+        prefix = prefix, suffix = suffix, text = prefix .. mid .. suffix,
       }
     end
   end
   if #entries == 0 then
     local msg = "   (no claude sessions found)"
-    entries[1] = { state = nil, dot = " ", prefix = msg, suffix = "", text = msg }
+    entries[1] = { dots = {}, prefix = msg, suffix = "", text = msg }
   end
   return entries
 end
@@ -826,16 +953,179 @@ local function screenEntries(screen)
     -- you set with ⌘⌃⌥N replaces the label but not the repo, and matching on the
     -- displayed name silently cost every renamed Desktop its dot.
     local state = claudeStateFor(auto)
-    -- Desktops with no session keep a blank slot so the arrows stay aligned.
-    local dot    = state and (M.claudeDotChar or "●") or " "
+    -- Desktops with no session / non-repo labels keep blank dot slots so the
+    -- arrows stay aligned. Both dots are keyed off the DETECTED label (auto).
+    local dots   = { claudeDotSpec(state), gitDotSpec(gitStateFor(auto)) }
+    local mid    = dots[1].ch .. " " .. dots[2].ch   -- " " ≈ the half-gap, for width sizing
     local prefix = string.format("%sDesktop %d ", (sid == active) and "▸ " or "   ", i)
     local suffix = string.format(" → %s", label)
     entries[#entries + 1] = {
-      sid = sid, state = state, dot = dot, prefix = prefix, suffix = suffix,
-      text = prefix .. dot .. suffix,        -- plain form, used for sizing
+      sid = sid, dots = dots, prefix = prefix, suffix = suffix,
+      text = prefix .. mid .. suffix,        -- plain form, used for sizing
     }
   end
   return entries
+end
+
+-- ---- GitHub status popup (⌘⌃⌥g, on demand) --------------------------------
+
+-- The repos currently ON the panel, in display order, deduped. Desktop labels
+-- (the detected repo) plus session projects, matched case-insensitively to a
+-- real repo under repoRoots. ⌘⌃⌥g queries only these, so it never fans out to
+-- every repo you own.
+local function displayedRepos()
+  local seen, order = {}, {}
+  local function add(label)
+    local key = tostring(label or ""):lower()
+    if key == "" or seen[key] ~= nil then return end
+    for _, r in ipairs(repos) do
+      if tostring(r.name):lower() == key and r.path then
+        seen[key] = r; order[#order + 1] = r; return
+      end
+    end
+    seen[key] = false          -- not a repo; remember so we don't rescan for it
+  end
+  if M.mode ~= "terminals" then
+    for _, s in ipairs(hs.screen.allScreens()) do
+      for _, sid in ipairs(safeSpacesForScreen(s)) do add(labelCache[sid]) end
+    end
+  end
+  if M.mode == "terminals" or M.mode == "both" then
+    for _, s in ipairs(sessions) do add(s.project) end
+  end
+  return order
+end
+
+local function htmlEscape(s)
+  return (tostring(s or ""):gsub("[&<>]", { ["&"] = "&amp;", ["<"] = "&lt;", [">"] = "&gt;" }))
+end
+
+-- Render the popup. `rows` is a list of { name, branch, dirty, ahead, commit, gh }.
+local function showGitHubPopup(rows)
+  local ghText = {
+    uptodate    = { t = "up to date",    c = "#4cd964" },
+    localahead  = { t = "unpushed only",  c = "#ffc73a" },
+    behind      = { t = "GitHub ahead",   c = "#ff6f6a" },
+    unreachable = { t = "unreachable",    c = "#9aa0a6" },
+  }
+  local trs = {}
+  for _, r in ipairs(rows) do
+    local g = ghText[r.gh] or { t = r.gh or "?", c = "#9aa0a6" }
+    local bits = {}
+    if (r.dirty or 0) > 0 then bits[#bits + 1] = r.dirty .. " changed" end
+    if (r.ahead or 0) > 0 then bits[#bits + 1] = r.ahead .. " unpushed" end
+    local localTxt   = (#bits > 0) and table.concat(bits, ", ") or "clean"
+    local localColor = (#bits > 0) and "#ff6f6a" or "#4cd964"
+    trs[#trs + 1] = string.format(
+      "<tr><td class='n'>%s</td><td>%s</td><td style='color:%s'>%s</td>"
+      .. "<td style='color:%s'>%s</td><td class='d'>%s</td></tr>",
+      htmlEscape(r.name), htmlEscape(r.branch ~= "" and r.branch or "—"),
+      localColor, htmlEscape(localTxt), g.c, htmlEscape(g.t),
+      htmlEscape((r.commit ~= "" and r.commit) or "—"))
+  end
+  if #trs == 0 then
+    trs[1] = "<tr><td colspan='5' class='d'>no repos on the panel to check</td></tr>"
+  end
+  local when = os.date("%Y-%m-%d %H:%M:%S")
+  local html = string.format([[<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+    body{font:13px -apple-system,Menlo,monospace;background:#1e1e1e;color:#eee;margin:0;padding:14px}
+    h1{font-size:14px;margin:0 0 2px}
+    .sub{color:#9aa0a6;font-size:11px;margin:0 0 12px;line-height:1.4}
+    table{border-collapse:collapse;width:100%%}
+    th,td{text-align:left;padding:5px 14px 5px 0;border-bottom:1px solid #333;white-space:nowrap}
+    th{color:#9aa0a6;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+    td.n{font-weight:600}
+    td.d{color:#9aa0a6}
+  </style></head><body>
+    <h1>GitHub status</h1>
+    <p class="sub">snapshot at %s · light touch: <code>git ls-remote</code>, your local refs untouched<br>
+      local red = uncommitted or unpushed · &quot;GitHub ahead&quot; = the remote has commits you don't</p>
+    <table><tr><th>repo</th><th>branch</th><th>local</th><th>github</th><th>last commit</th></tr>%s</table>
+  </body></html>]], when, table.concat(trs, ""))
+
+  local h = math.min(560, 150 + math.max(1, #rows) * 30)
+  if ghWebview then pcall(function() ghWebview:delete() end); ghWebview = nil end
+  local okv, w = pcall(function()
+    local v = hs.webview.new({ x = 140, y = 140, w = 660, h = h })
+    -- titled(1) | closable(2) | miniaturizable(4) | resizable(8)
+    v:windowStyle(1 + 2 + 4 + 8)
+    v:windowTitle("GitHub status")
+    v:allowTextEntry(false)
+    pcall(function() v:closeOnEscape(true) end)
+    pcall(function() v:level(hs.canvas.windowLevels.floating) end)
+    return v
+  end)
+  if not (okv and w) then hs.alert.show("Could not open GitHub popup"); return end
+  ghWebview = w
+  ghWebview:html(html)
+  ghWebview:show()
+  pcall(function() ghWebview:bringToFront(true) end)
+end
+
+-- One sh pass over the shown repos: local state plus a light-touch ls-remote of
+-- the current branch. Compare the remote head SHA to HEAD to classify GitHub:
+-- equal => up to date; remote is an ancestor of HEAD => you're merely ahead
+-- (unpushed only); otherwise the remote has commits you don't (GitHub ahead);
+-- empty/failed ls-remote => unreachable. Only one %s (the paths); rest are %%.
+local GIT_REMOTE_SNIPPET = [[
+export GIT_TERMINAL_PROMPT=0
+export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
+for d in %s; do
+  b=$(git -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null)
+  dirty=$(git -C "$d" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+  ahead=$(git -C "$d" rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)
+  lc=$(git -C "$d" log -1 --format='%%cd' --date=format:'%%Y-%%m-%%d %%H:%%M' 2>/dev/null)
+  head=$(git -C "$d" rev-parse HEAD 2>/dev/null)
+  rem=$(git -C "$d" ls-remote origin "refs/heads/$b" 2>/dev/null | awk '{print $1}')
+  if [ -z "$rem" ]; then gh=unreachable
+  elif [ "$rem" = "$head" ]; then gh=uptodate
+  elif git -C "$d" merge-base --is-ancestor "$rem" HEAD 2>/dev/null; then gh=localahead
+  else gh=behind
+  fi
+  printf '%%s\t%%s\t%%s\t%%s\t%%s\t%%s\n' "$d" "$b" "$dirty" "$ahead" "$lc" "$gh"
+done
+]]
+
+function M.scanGitHub()
+  local shown = displayedRepos()
+  if #shown == 0 then hs.alert.show("No repos on the panel to check"); return end
+  if ghTask then hs.alert.show("GitHub check already running…"); return end
+  hs.alert.show(("Querying GitHub for %d repo%s…"):format(#shown, #shown == 1 and "" or "s"))
+  local parts, nameOf = {}, {}
+  for _, r in ipairs(shown) do parts[#parts + 1] = shQuote(r.path); nameOf[r.path] = r.name end
+  local script = string.format(GIT_REMOTE_SNIPPET, table.concat(parts, " "))
+  local rows, done = {}, false
+  local function finish()
+    if done then return end
+    done = true
+    if ghWatchdog then ghWatchdog:stop(); ghWatchdog = nil end
+    showGitHubPopup(rows)
+  end
+  local ok, t = pcall(hs.task.new, "/bin/sh", function(_, stdout, _)
+    ghTask = nil
+    for line in tostring(stdout or ""):gmatch("[^\n]+") do
+      local p, b, dirty, ahead, lc, gh = line:match("^(.-)\t(.-)\t(.-)\t(.-)\t(.-)\t(%S+)$")
+      if p then
+        rows[#rows + 1] = { name = nameOf[p] or p, branch = b, dirty = tonumber(dirty) or 0,
+                            ahead = tonumber(ahead) or 0, commit = lc, gh = gh }
+      end
+    end
+    finish()
+  end, { "-c", script })
+  if ok and t then
+    ghTask = t
+    t:start()
+    -- Watchdog: a wedged network read (despite GIT_TERMINAL_PROMPT=0) must never
+    -- leave the query pinned. Kill it and show whatever came back.
+    ghWatchdog = hs.timer.doAfter(M.githubTimeout or 20, function()
+      if ghTask then pcall(function() ghTask:terminate() end); ghTask = nil
+        hs.alert.show("GitHub query timed out")
+      end
+      finish()
+    end)
+  else
+    hs.alert.show("Could not start GitHub query")
+  end
 end
 
 -- ---- dragging the panel ---------------------------------------------------
@@ -1040,19 +1330,24 @@ draw = function()
         cy = cy + lineH
       end
       for _, e in ipairs(blk.entries) do
-        -- Colour only the dot. hs.styledtext keeps this one text element, so
-        -- the click target is unchanged and no glyph positions are computed.
+        -- Each entry carries an ordered list of dot specs (claude dot, then git
+        -- dot); a dot with no colour is a blank spacer. A half-size space is set
+        -- BETWEEN the dots so the two signals don't read as one blob. Every line
+        -- with dots is rendered through styledtext — even all-blank ones — so the
+        -- gap is identical on every line and the → arrows stay column-aligned.
+        -- It stays a single text element, so the click target is unchanged.
         local body = e.text
-        if e.state then
+        if e.dots and #e.dots > 0 then
           local font  = { name = "Menlo", size = M.fontSize }
           local plain = { font = font, color = { white = 1, alpha = 1 } }
-          local hot   = { font = font,
-                          color = (M.claudeDotColors or {})[e.state]
-                                  or { white = 1, alpha = 1 } }
+          local gap   = { font = { name = "Menlo", size = math.max(1, math.floor(M.fontSize * 0.5)) } }
           local ok, styled = pcall(function()
-            return hs.styledtext.new(e.prefix, plain)
-                .. hs.styledtext.new(e.dot, hot)
-                .. hs.styledtext.new(e.suffix, plain)
+            local st = hs.styledtext.new(e.prefix, plain)
+            for i, d in ipairs(e.dots) do
+              if i > 1 then st = st .. hs.styledtext.new(" ", gap) end
+              st = st .. hs.styledtext.new(d.ch, { font = font, color = d.color or { white = 1, alpha = 1 } })
+            end
+            return st .. hs.styledtext.new(e.suffix, plain)
           end)
           if ok and styled then body = styled end
         end
@@ -1352,6 +1647,9 @@ function M.start()
   -- The dot gets its own, faster timer. Riding the 10s scan made it lag far
   -- enough that a session looked idle for seconds after it started working.
   claudeTimer   = hs.timer.doEvery(M.claudeDotSeconds, refreshClaudeStates)
+  -- The git dot has its own, slower timer: it is offline and cheap, but there is
+  -- no reason to re-read it as often as the claude spinner.
+  gitTimer      = hs.timer.doEvery(M.gitDotSeconds, refreshGitStates)
   autosaveTimer = hs.timer.doEvery(M.autosaveMinutes * 60, M.saveLayout)
   hs.shutdownCallback = function() pcall(M.saveLayout) end
 
@@ -1360,6 +1658,9 @@ function M.start()
   hs.hotkey.bind(M.restoreHotkey.mods, M.restoreHotkey.key, M.restoreLayout)
   hs.hotkey.bind(M.scanHotkey.mods,    M.scanHotkey.key,    M.scanAll)
   hs.hotkey.bind(M.modeHotkey.mods,    M.modeHotkey.key,    M.cycleMode)
+  if M.githubHotkey then
+    hs.hotkey.bind(M.githubHotkey.mods, M.githubHotkey.key, M.scanGitHub)
+  end
 
   print("desktop_dashboard " .. M.version .. " loaded")
   hs.alert.show("Desktop dashboard " .. M.version .. " on")
@@ -1370,6 +1671,10 @@ function M.stop()
   endDrag(false)                 -- never leave a mouse tap running
   if refreshTimer  then refreshTimer:stop() end
   if claudeTimer   then claudeTimer:stop() end
+  if gitTimer      then gitTimer:stop() end
+  if ghWatchdog    then ghWatchdog:stop(); ghWatchdog = nil end
+  if ghTask        then pcall(function() ghTask:terminate() end); ghTask = nil end
+  if ghWebview     then pcall(function() ghWebview:delete() end); ghWebview = nil end
   if autosaveTimer then autosaveTimer:stop() end
   if spaceWatcher  then spaceWatcher:stop() end
   if screenWatcher then screenWatcher:stop() end

@@ -138,7 +138,7 @@ settings across machines.
 
 ## First run
 
-Press **⌘⌃⌥S** once to walk every Desktop and label them all. After that it keeps itself
+Press **⌘⌃⌥s** once to walk every Desktop and label them all. After that it keeps itself
 up to date on its own.
 
 ## Testing
@@ -199,7 +199,7 @@ Notes:
 - **Red only appears if the hooks are installed** (previous section). Without them steps 2
   and 4 show green instead of red; everything else is the same.
 - If the dot never appears at all, the Desktop probably isn't labeled with the repo name —
-  press ⌘⌃⌥S and check the line reads the repo, not `Utility` or an app name.
+  press ⌘⌃⌥s and check the line reads the repo, not `Utility` or an app name.
 
 ## Configuration
 
@@ -215,4 +215,4 @@ Configuration section of `README.md` for the full list.
 - **Wrong version in the Console (or old behavior):** an old copy is shadowing the repo —
   remove `~/.hammerspoon/desktop_dashboard.lua` (step 4 note) and reload.
 - **A Desktop won't label until you visit it:** expected — macOS only lets an app read a
-  Desktop's windows while it's active. Press ⌘⌃⌥S to fill them all in.
+  Desktop's windows while it's active. Press ⌘⌃⌥s to fill them all in.

@@ -7,26 +7,32 @@ right now** — including the ones on Desktops you can't see. With four or five 
 running, you otherwise have to visit each in turn to find the one that stopped to ask you
 something.
 
-It works whichever way you organise things. **⌘⌃⌥M** switches between two views, or shows
+It works whichever way you organise things. **⌘⌃⌥m** switches between two views, or shows
 both at once.
 
 **Desktops** — one line per Space, labelled by the repo or app on it:
 
 ```
 Built-in Retina Display:
-    Desktop 1   → Utility
-  ▸ Desktop 2   → Communication
-    Desktop 3 ● → three-way_SST_error_analysis_manuscript     ← working
-    Desktop 4 ● → opendap-registry                            ← asking you something
-    Desktop 6 ● → MODIS_L2                                    ← finished, you haven't looked
-    Desktop 7   → SIED
+    Desktop 1    → Utility
+  ▸ Desktop 2    → Communication
+    Desktop 3 ●● → three-way_SST_error_analysis_manuscript   ← claude working · local edits
+    Desktop 4 ●● → opendap-registry                          ← claude asking you · all pushed
+    Desktop 6  ● → MODIS_L2                                  ← no session · local changes
+    Desktop 7  ● → SIED                                      ← no session · clean, in sync
 iMac:
-    Desktop 1   → Claude Chat/Cowork
+    Desktop 1    → Claude Chat/Cowork
 ─────────────────────────────
-⌘⌃⌥  S scan · D hide · N name
-     R restore · M mode
+⌘⌃⌥  s scan · d hide · n name
+     r restore · m mode · g GitHub
 click a line to switch Desktops
 ```
+
+Each repo line carries **two** dots: the first is the claude-session dot, the second is
+the **git dot** — 🔴 red when this machine has something GitHub doesn't (uncommitted or
+unpushed), 🟢 green when it's clean and fully pushed. Non-repo lines (Utility,
+Communication) have no git dot. Press **⌘⌃⌥g** for a popup of each shown repo's GitHub
+state.
 
 **Sessions** — one line per running session, wherever its window happens to be. For people
 who keep every session on a single Desktop, where listing Desktops says almost nothing:
@@ -63,11 +69,19 @@ instead, visible from every Desktop.
 - **Works for Desktops you aren't looking at.** macOS won't let an app read the windows of
   a Space you're not viewing, but Terminal will report every window's title regardless — so
   session state stays live everywhere, which is exactly where it's useful.
-- **Two views, ⌘⌃⌥M** — list Desktops, list sessions, or both. See
+- **Two views, ⌘⌃⌥m** — list Desktops, list sessions, or both. See
   [Two views](#two-views-desktops-or-sessions). Sessions are found automatically; nothing
   to register, and they keep their numbering as others come and go.
 - **Labels a Desktop with the repo you're working in**, so `claude` running in
   `~/Git_Repos/opendap-registry` makes that Desktop read `opendap-registry`.
+
+**For git repos**
+
+- **A git status dot per repo** — red when this machine has uncommitted or unpushed work,
+  green when it's clean and in sync with GitHub. Local and offline. See
+  [the git dot](#the-git-status-dot).
+- **⌘⌃⌥g for GitHub state on demand** — a popup of each shown repo's local + GitHub status,
+  querying the network only when you press it.
 
 **For everything else**
 
@@ -77,13 +91,13 @@ instead, visible from every Desktop.
 - **Drag the panel** anywhere; each display remembers where you put it.
 - **Auto-refreshes** on window open/close, Desktop switch, and a periodic backstop; the
   session dots poll faster still (~3 s).
-- **Custom names** (⌘⌃⌥N) override auto-detection and are remembered.
+- **Custom names** (⌘⌃⌥n) override auto-detection and are remembered.
 - **Remembers** your view, panel position and Desktop names across reloads and reboots.
 
 ## Install
 
 Full steps in **[INSTALL.md](INSTALL.md)** — install Hammerspoon, grant Accessibility, add
-the loader line to `~/.hammerspoon/init.lua`, Reload Config, press ⌘⌃⌥S once.
+the loader line to `~/.hammerspoon/init.lua`, Reload Config, press ⌘⌃⌥s once.
 
 The **red** dot needs one extra, optional step: letting Claude Code tell the dashboard when
 it has paused for you. Claude Code can be told to run a script automatically at set moments.
@@ -136,16 +150,17 @@ restarting Hammerspoon to load the config, works from a shell.
 | Shortcut | Action |
 |----------|--------|
 | Click a line | Switch to that Desktop |
-| ⌘⌃⌥ D | Show / hide the dashboard |
-| ⌘⌃⌥ N | Name the current Desktop yourself |
-| ⌘⌃⌥ R | Restore the saved window layout (move/open windows to match) |
-| ⌘⌃⌥ S | Visit every Desktop once and label the ones you haven't named |
-| ⌘⌃⌥ M | Cycle what the panel lists: Desktops / claude sessions / both |
+| ⌘⌃⌥ d | Show / hide the dashboard |
+| ⌘⌃⌥ n | Name the current Desktop yourself |
+| ⌘⌃⌥ r | Restore the saved window layout (move/open windows to match) |
+| ⌘⌃⌥ s | Visit every Desktop once and label the ones you haven't named |
+| ⌘⌃⌥ m | Cycle what the panel lists: Desktops / claude sessions / both |
+| ⌘⌃⌥ g | Pop up each shown repo's GitHub status (on demand; only this hits the network) |
 | Drag the panel | Move it anywhere; the position is remembered per display |
 
 **A name you type yourself sticks.** It beats whatever the dashboard would have worked
-out, and ⌘⌃⌥S will not overwrite it — that's the point of setting one. To go back to
-automatic labeling, press ⌘⌃⌥N on that Desktop again and submit an **empty** name.
+out, and ⌘⌃⌥s will not overwrite it — that's the point of setting one. To go back to
+automatic labeling, press ⌘⌃⌥n on that Desktop again and submit an **empty** name.
 
 Behind the scenes a scan still works out the automatic label for a Desktop you've named,
 it just doesn't show it. So clearing your name reveals a current label, not a stale one —
@@ -160,7 +175,7 @@ corner; `M.draggable = false` disables dragging entirely.
 
 ## Two views: Desktops or sessions
 
-The panel can list **Desktops** (the default), **claude sessions**, or both. **⌘⌃⌥M**
+The panel can list **Desktops** (the default), **claude sessions**, or both. **⌘⌃⌥m**
 cycles; `M.mode` sets the startup value.
 
 Sessions view exists for a different working style: if you keep every claude session on a
@@ -244,6 +259,44 @@ the dashboard can see. Visiting the Desktop is the acknowledgement.
 The title check runs in the background, so a slow or unresponsive Terminal can never freeze
 the panel. Set `M.showClaudeDot = false` to turn the dots off entirely.
 
+## The git status dot
+
+Every panel line whose label is one of your repos also carries a **second dot**, right
+after the claude dot, telling you whether **this machine is in sync with GitHub**:
+
+| dot | meaning |
+|-----|---------|
+| 🔴 red | GitHub doesn't have everything here — a dirty working tree (uncommitted or untracked changes) **or** local commits you haven't pushed |
+| 🟢 green | clean working tree **and** all commits pushed |
+| *(none)* | this line isn't a repo (an app/category label like `Mail` or `Utility`), or it's a folder that isn't under git control |
+
+This check is **local and offline** — `git status` plus a count of unpushed commits, run in
+the background on its own timer (`M.gitDotSeconds`, default 15 s). It never touches the
+network, so it can't hang and doesn't need any credentials. It deliberately does **not**
+try to show GitHub's own state: that would go stale the instant anyone pushed, and a dot
+shouldn't claim something it hasn't checked. Set `M.showGitDot = false` to turn it off;
+`M.gitDotColors` sets the two colors.
+
+### ⌘⌃⌥g — GitHub status, on demand
+
+GitHub's side is a keypress away. **⌘⌃⌥g** opens a popup summarizing every repo currently
+on the panel — branch, local state (how many files changed, how many commits unpushed),
+GitHub state, and the last commit's date/time:
+
+| GitHub state | meaning |
+|--------------|---------|
+| up to date | the remote's tip is exactly your `HEAD` |
+| unpushed only | you're ahead; the remote is behind you but has nothing new |
+| GitHub ahead | the remote has commits you don't have (also shown when you've diverged) |
+| unreachable | no network, no `origin`, or the remote refused without credentials |
+
+It's **on demand on purpose**: nothing hits the network until you press it, and then only
+for the repos you're actually looking at. The query is a **light touch** — `git ls-remote`
+reads the remote's head SHA without fetching anything or updating your local refs, so it
+never changes what `git status` shows in your own terminal. It runs in the background with
+a timeout (`M.githubTimeout`), so a slow remote can't wedge the panel. A "last push" time
+isn't shown because git doesn't record one; the last *commit* time is what's available.
+
 ## How a Desktop gets its label
 
 In order, first match wins:
@@ -269,7 +322,7 @@ Everything is in the `CONFIG` block at the top of `desktop_dashboard.lua`. Most 
 need changing:
 
 - `M.repoRoots` — folders whose subdirectories are your repos (default `~/Git_Repos`).
-- `M.mode` — which view the panel opens in: `"desktops"`, `"terminals"` or `"both"`. ⌘⌃⌥M
+- `M.mode` — which view the panel opens in: `"desktops"`, `"terminals"` or `"both"`. ⌘⌃⌥m
   changes it at runtime and the choice is remembered, so this is only the first-run value.
 - `M.sessionTwoLine`, `M.sessionSummaryChars`, `M.sessionSummaryIndent`, `M.sessionHeader`
   — the sessions view: whether the task summary gets its own indented line, how much of it
@@ -278,6 +331,9 @@ need changing:
   a press counts as a drag rather than a click. `dd.resetPanelPosition()` re-corners it.
 - `M.showClaudeDot`, `M.claudeDotColors`, `M.claudeDotSeconds`, `M.claudeStateDir` — the
   session dot.
+- `M.showGitDot`, `M.gitDotColors`, `M.gitDotSeconds` — the local git status dot.
+- `M.githubHotkey`, `M.githubTimeout` — the on-demand GitHub popup (⌘⌃⌥g) and how long to
+  wait before killing a hung query.
 - `M.claudeOnlyHintApps` / `M.claudeTitleMarker` — terminals whose titles count as a repo
   hint only while running claude. Add your terminal if it isn't listed.
 - `M.docApps` — apps asked for their open file's path. **Keep slow apps
@@ -304,7 +360,7 @@ need changing:
 ## Limitations
 
 - macOS only lets an app read a window's details while its Desktop is active, so a Desktop
-  is labeled when you first visit it (or via ⌘⌃⌥S), not before. There's no SIP-free way
+  is labeled when you first visit it (or via ⌘⌃⌥s), not before. There's no SIP-free way
   around this. **Session dots are the exception** — they come from asking Terminal for its
   window titles, which reports every Desktop, not just the visible one.
 - Session dots currently require **Terminal.app**; other terminals are labeled but get no
@@ -312,7 +368,7 @@ need changing:
 - The label shows in this overlay, **not** in the Mission Control thumbnail.
 - Dragging a window between Desktops isn't an open/close event, so that case waits for the
   next Desktop switch or the periodic backstop.
-- ⌘⌃⌥R (restore layout) is **manual and partial**: it can only move windows that are on a
+- ⌘⌃⌥r (restore layout) is **manual and partial**: it can only move windows that are on a
   currently-visible Desktop, and can only reopen windows that have a document path. It will
   not reassemble a scattered post-reboot layout. For apps that always belong in one place,
   macOS's own Dock → Options → **Assign To** is more reliable.
