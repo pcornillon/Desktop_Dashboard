@@ -40,7 +40,8 @@
   • ⌘⌃⌥ s — walk every Desktop once and label them all.
   • ⌘⌃⌥ m — cycle what the panel lists: Desktops / claude sessions / both.
   • ⌘⌃⌥ g — pop up each shown repo's GitHub status (on demand; queries the
-            network only when pressed).
+            network only when pressed). In that popup, click "GitHub ahead"
+            to pull that repo — fast-forward only, so it can't lose work.
   • Drag the panel to move it; its position is remembered per display.
 
   Every panel line whose label is a repo also carries a git dot: RED if this
@@ -64,7 +65,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v41 (⌘⌃⌥d hides one display, not both, 2026-07-30)"
+M.version = "v45 (say plainly why an open editor matters before a pull, 2026-08-01)"
 
 -- ============================ CONFIG ============================
 
@@ -185,6 +186,52 @@ M.gitDotColors  = {
 -- local ref, so it never disturbs what `git status` shows in your own terminal.
 M.githubHotkey  = { mods = {"cmd","ctrl","alt"}, key = "g" }
 M.githubTimeout = 20             -- seconds before a slow/hung GitHub query is killed
+
+-- Clicking "GitHub ahead" in that popup pulls the repo. This is the ONLY thing
+-- in the tool that writes to one of your repositories, so it is the one place
+-- that needs to be conservative rather than clever:
+--   • --ff-only. "GitHub ahead" also covers a true DIVERGENCE (you committed
+--     here, someone committed there), and a plain `git pull` would answer that
+--     with a merge commit — a rewrite of your history from a single click, in a
+--     window with nowhere to resolve a conflict. --ff-only takes the easy case
+--     and refuses the rest out loud. Set false to allow the merge.
+--   • Nothing else is offered. There is deliberately no push button here: a
+--     pull that fast-forwards cannot lose work, and a push can.
+-- Git's own refusals (dirty tree in the way, diverged history) are shown
+-- verbatim in the popup rather than second-guessed.
+M.allowPullFromPopup = true
+M.pullFFOnly         = true
+M.pullTimeout        = 120       -- a pull fetches objects; give it longer than a query
+
+-- Two things a pull can't see, which this panel can, so it checks them first.
+--
+-- 1. A CLAUDE SESSION IN THAT REPO. Changing files under a session that is
+--    mid-task doesn't destroy anything, but it does leave it reasoning about
+--    files that no longer say what it read. "working" (the yellow dot) blocks
+--    the pull; a session that is merely open does not, because on this machine
+--    that would block nearly every repo nearly all the time. Set "any" to
+--    refuse whenever a session is live in the repo at all, or false for never.
+M.pullBlockOnClaude = "working"   -- "working" | "any" | false
+--
+-- 2. A FILE THE PULL WOULD CHANGE THAT YOU HAVE OPEN IN AN EDITOR. This is the
+--    one real way to lose work here, and it isn't git's fault: the editor is
+--    holding the old text, and your next save writes it back over what arrived.
+--    Git can't know, but this panel already reads the open document of every
+--    editor in M.docApps, so it can. Aborting beats warning — a warning still
+--    leaves the stale buffer in front of you.
+--    LIMIT, and it matters: this only sees editors in M.docApps, on Desktops
+--    that have been read since launch. TeXShop, Electron editors and anything
+--    unvisited are invisible to it. Treat a clean check as "nothing known to be
+--    open", never as "nothing is open".
+M.pullBlockOnOpenFiles = true
+
+-- Confirm before pulling. The prompt comes AFTER the checks, so it can say what
+-- is actually about to change instead of asking you to agree to an unknown —
+-- "3 files will change: notes.md, run.lua, README.md" is a decision; "are you
+-- sure?" is a speed bump. It appears inside the popup rather than as a system
+-- dialog: the popup is already frontmost under your cursor, and an alert raised
+-- by Hammerspoon while another app is active can open BEHIND that app.
+M.pullConfirm = true
 
 M.categories = {
   ["Mail"] = "Communication", ["Microsoft Outlook"] = "Communication",
@@ -339,6 +386,13 @@ M.nameHotkey      = { mods = {"cmd","ctrl","alt"}, key = "n" }
 M.restoreHotkey   = { mods = {"cmd","ctrl","alt"}, key = "r" }
 M.scanHotkey      = { mods = {"cmd","ctrl","alt"}, key = "s" }
 
+-- A line above the legend counting the Desktops still showing restored state
+-- rather than a first-hand read — macOS only lets us read the Desktop you are
+-- looking at, so after a reload the rest are last session's picture until you
+-- visit them or press ⌘⌃⌥S. Click the line to do that now. It counts itself
+-- down as Desktops are read and disappears when none are left.
+M.showStaleHint = true
+
 -- Command legend shown at the bottom of the panel. Set showLegend=false to
 -- hide it; edit legendLines if you remap the hotkeys above.
 M.showLegend  = true
@@ -364,6 +418,8 @@ local iconApps   = {}          -- spaceID -> ordered { {bundle,app,wid,title}, .
 local iconImages = {}          -- bundle id -> hs.image, or false if it has none
 local iconMeta   = {}          -- canvas element id -> { app, title, x, y, w, h },
                                -- rebuilt by draw(); drives the hover tip
+local liveRead   = {}          -- spaceID -> true once actually read THIS session,
+                               -- as opposed to restored from the state file
 local hoverId, hoverUUID       -- the icon currently pointed at, and its screen
 local tipCanvas, tipTimer, tipWatch, focusTimer
 local overrides  = {}          -- spaceID -> manual name
@@ -380,6 +436,9 @@ local claudeStatesAt, claudeTask, claudeTimer = 0, nil, nil
 local gitStates    = {}        -- repo name (lowercased) -> "changed" | "clean"
 local gitStatesAt, gitTask, gitTimer = 0, nil, nil
 local ghTask, ghWatchdog, ghWebview     -- ⌘⌃⌥g: in-flight query, its kill timer, popup
+local ghUserContent                     -- JS→Lua bridge for the popup, made once
+local pullTask, pullWatchdog, pullRescan  -- the one operation here that writes to a repo
+local pendingPull                         -- a pull waiting on its confirmation click
 local refreshTimer, autosaveTimer, spaceWatcher, screenWatcher, winWatcher, debounceTimer
 -- Holds the ⌘⌃⌥S walk's pending step. MUST be a live reference: an hs.timer
 -- with nothing referencing it can be garbage-collected before it fires, which
@@ -1033,6 +1092,7 @@ local function labelSpace(byId, sid, byCg)
   -- icon could express.
   iconApps[sid]   = buildIconList(funcs, extras, ghosts, kind)
   lastGather[sid] = funcs
+  liveRead[sid]   = true         -- this Desktop is now first-hand, not restored
 end
 
 -- Read the Desktop(s) currently active on each display (one snapshot for all).
@@ -1293,8 +1353,238 @@ local function displayedRepos()
   return order
 end
 
+-- Quotes are escaped too: these strings also land in HTML attributes.
 local function htmlEscape(s)
-  return (tostring(s or ""):gsub("[&<>]", { ["&"] = "&amp;", ["<"] = "&lt;", [">"] = "&gt;" }))
+  return (tostring(s or ""):gsub("[&<>\"]",
+    { ["&"] = "&amp;", ["<"] = "&lt;", [">"] = "&gt;", ["\""] = "&quot;" }))
+end
+
+-- A Lua string as a JavaScript string literal, for evaluateJavaScript.
+local function jsQuote(s)
+  return '"' .. tostring(s or ""):gsub("[\\\"]", "\\%0")
+                                 :gsub("\n", "\\n"):gsub("\r", "")
+                                 :gsub("\t", "\\t") .. '"'
+end
+
+-- Write a line into the popup's status area. Silently does nothing if the
+-- popup has since been closed, which is the normal case for a slow pull.
+local function ghSay(text, color)
+  if not ghWebview then return end
+  pcall(function()
+    ghWebview:evaluateJavaScript(string.format(
+      "var m=document.getElementById('msg'); if(m){m.textContent=%s; m.style.color=%s;} 'ok'",
+      jsQuote(text), jsQuote(color or "#9aa0a6")))
+  end)
+end
+
+-- Same area, but as markup — used only for the confirmation, which needs two
+-- things to click. The links post straight back through the same bridge.
+local function ghAsk(html)
+  if not ghWebview then return end
+  pcall(function()
+    ghWebview:evaluateJavaScript(string.format(
+      "var m=document.getElementById('msg'); if(m){m.innerHTML=%s; m.style.color='#ffc73a';} 'ok'",
+      jsQuote(html)))
+  end)
+end
+
+-- "3 files will change: a.md, b.lua and 1 more", kept to one readable clause.
+local function describeChanges(files)
+  if #files == 0 then return "no files change" end
+  local shown = {}
+  for i = 1, math.min(#files, 3) do shown[i] = files[i]:match("[^/]+$") or files[i] end
+  local list = table.concat(shown, ", ")
+  if #files > 3 then list = list .. " and " .. (#files - 3) .. " more" end
+  return string.format("%d file%s will change: %s", #files, #files == 1 and "" or "s", list)
+end
+
+-- Is a claude session in the way? Returns a reason to refuse, or nil.
+-- Keyed off claudeStates, the live read of terminal titles — NOT claudeStateFor,
+-- which returns nil once you've acknowledged a session and would call a busy
+-- repo clear.
+local function pullBlockedByClaude(name)
+  local mode = M.pullBlockOnClaude
+  if mode == false then return nil end
+  local st = claudeStates[tostring(name or ""):lower()]
+  if not st then return nil end
+  if st == "working" then return "a claude session is working in " .. name end
+  if mode == "any" then return "a claude session is open in " .. name end
+  return nil
+end
+
+-- Every document the panel currently knows to be open, lowercased for the
+-- case-insensitive filesystem. Only editors in M.docApps report one, and only
+-- for Desktops read since launch — see M.pullBlockOnOpenFiles.
+local function openDocPaths()
+  local set = {}
+  for _, funcs in pairs(lastGather) do
+    for _, w in ipairs(funcs) do
+      if w.doc and w.doc ~= "" then set[tostring(w.doc):lower()] = true end
+    end
+  end
+  return set
+end
+
+-- Ask the remote what a pull would change, WITHOUT changing the working tree:
+-- fetch (which the pull would do anyway, and which only moves the origin/…
+-- tracking ref) and then diff HEAD against the upstream. The file list is what
+-- the open-editor check needs; nothing here touches a file of yours.
+local PULL_PRECHECK = [[
+export GIT_TERMINAL_PROMPT=0
+export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
+git -C %s fetch --quiet 2>/dev/null || echo '__FETCHFAIL__'
+git -C %s diff --name-only 'HEAD..@{u}' 2>/dev/null
+]]
+
+local pullPrecheckTask
+
+-- Pull one repo, on demand, from a click in the popup. Async throughout: this
+-- talks to the network and must never block the panel.
+local function pullRepo(path, name)
+  if M.allowPullFromPopup == false then return end
+  if pullTask or pullPrecheckTask then ghSay("a pull is already running…", "#ffc73a"); return end
+
+  -- Local knowledge first, before any network work.
+  local blocked = pullBlockedByClaude(name)
+  if blocked then
+    ghSay("Aborting the pull: " .. blocked
+          .. ". Wait for it to finish, or pull in a terminal.", "#ff6f6a")
+    return
+  end
+
+  local args = (M.pullFFOnly ~= false) and "--ff-only" or ""
+  local script = string.format(
+    'export GIT_TERMINAL_PROMPT=0\nexport PATH="/usr/local/bin:/usr/bin:/bin:$PATH"\n'
+    .. 'git -C %s pull %s 2>&1', shQuote(path), args)
+
+  local function finish(okPull, out)
+    if pullWatchdog then pullWatchdog:stop(); pullWatchdog = nil end
+    pullTask = nil
+    out = tostring(out or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if okPull then
+      ghSay(name .. ": " .. (out ~= "" and out:gsub("\n", " · ") or "pulled"), "#4cd964")
+      hs.alert.show(name .. " pulled")
+      -- The panel's git dot is now stale, and its refresh is rate-limited;
+      -- clear the stamp so the next tick re-reads instead of skipping.
+      gitStatesAt = 0
+      pcall(refreshGitStates)
+      -- Re-query so every row in the popup tells the truth again, not just the
+      -- one that was clicked. The delay is there to be READ: the rescan rebuilds
+      -- the whole popup and takes the result line with it, and "Fast-forward, 3
+      -- files changed" is worth a couple of seconds on screen.
+      pullRescan = hs.timer.doAfter(2.5, function() pcall(M.scanGitHub) end)
+    else
+      -- Git's own words. A refusal here is the feature working: a dirty file in
+      -- the way, or a history that can't fast-forward, is exactly what you want
+      -- to be told rather than have resolved for you.
+      ghSay(name .. ": " .. (out ~= "" and out:gsub("\n", " · ") or "pull failed"), "#ff6f6a")
+    end
+  end
+
+  local function doPull()
+    local ok, t = pcall(hs.task.new, "/bin/sh", function(code, stdout, stderr)
+      finish(code == 0, (stdout or "") .. (stderr or ""))
+    end, { "-c", script })
+    if not (ok and t) then ghSay("could not start the pull", "#ff6f6a"); return end
+    pullTask = t
+    t:start()
+    pullWatchdog = hs.timer.doAfter(M.pullTimeout or 120, function()
+      if pullTask then pcall(function() pullTask:terminate() end) end
+      finish(false, "timed out after " .. (M.pullTimeout or 120) .. "s")
+    end)
+  end
+
+  if M.pullBlockOnOpenFiles == false then ghSay("pulling " .. name .. "…", "#ffc73a"); doPull(); return end
+
+  -- Find out what would change before changing it.
+  ghSay("checking what " .. name .. " would change…", "#ffc73a")
+  local pre = string.format(PULL_PRECHECK, shQuote(path), shQuote(path))
+  local okp, pt = pcall(hs.task.new, "/bin/sh", function(_, stdout, _)
+    pullPrecheckTask = nil
+    local text = tostring(stdout or "")
+    if text:find("__FETCHFAIL__", 1, true) then
+      ghSay(name .. ": couldn't reach the remote — nothing was changed.", "#ff6f6a")
+      return
+    end
+    local open, hits = openDocPaths(), {}
+    for rel in text:gmatch("[^\n]+") do
+      if rel ~= "" and rel ~= "__FETCHFAIL__" then
+        local abs = (path:gsub("/$", "")) .. "/" .. rel
+        if open[abs:lower()] then hits[#hits + 1] = rel:match("[^/]+$") or rel end
+      end
+    end
+    if #hits > 0 then
+      local list = table.concat(hits, ", ", 1, math.min(#hits, 3))
+      if #hits > 3 then list = list .. " and " .. (#hits - 3) .. " more" end
+      ghSay(("Aborting the pull: %s would change %s, which you have open. "):format(name, list)
+            .. "Close it, or handle this in a terminal session.", "#ff6f6a")
+      return
+    end
+    -- Everything checked out. Ask, naming what is about to change.
+    if M.pullConfirm == false then
+      ghSay("pulling " .. name .. "…", "#ffc73a")
+      doPull()
+      return
+    end
+    local changed = {}
+    for rel in text:gmatch("[^\n]+") do
+      if rel ~= "" and rel ~= "__FETCHFAIL__" then changed[#changed + 1] = rel end
+    end
+    pendingPull = { name = name, run = doPull }
+    -- Second line names the ONE way this can cost you work, in the order a
+    -- person needs it: when it applies, what to do, and what happens if you
+    -- don't. An earlier draft ("Files change on disk — reopen anything from
+    -- this repo you have open afterwards") was reported as confusing and
+    -- deserved it: vague about what changes, and "afterwards" attached itself
+    -- to the wrong verb. Never leave the reason out of a warning — without it
+    -- "reopen" reads as superstition.
+    ghAsk(string.format(
+      "<b>Pull %s?</b> %s.<br>If any of these are open in an editor, close them "
+      .. "first — saving from an old copy would undo the pull.<br>"
+      .. "<span class='act' onclick=\"window.webkit.messageHandlers.dashboard"
+      .. ".postMessage({action:'confirmPull'})\">Pull</span> &nbsp;·&nbsp; "
+      .. "<span class='act' onclick=\"window.webkit.messageHandlers.dashboard"
+      .. ".postMessage({action:'cancelPull'})\">Cancel</span>",
+      htmlEscape(name), htmlEscape(describeChanges(changed))))
+  end, { "-c", pre })
+  if not (okp and pt) then ghSay("could not check " .. name, "#ff6f6a"); return end
+  pullPrecheckTask = pt
+  pt:start()
+  -- The check reaches the network too, so it needs the same watchdog the pull
+  -- has. Without one a wedged fetch would leave pullPrecheckTask set and every
+  -- later click would report "a pull is already running".
+  pullWatchdog = hs.timer.doAfter(M.pullTimeout or 120, function()
+    if pullPrecheckTask then
+      pcall(function() pullPrecheckTask:terminate() end)
+      pullPrecheckTask = nil
+      ghSay(name .. ": checking the remote timed out — nothing was changed.", "#ff6f6a")
+    end
+  end)
+end
+
+-- The popup's JS calls into here. Built once and reused: a controller outlives
+-- the webview, which is deleted and rebuilt on every ⌘⌃⌥g.
+local function ghBridge()
+  if ghUserContent then return ghUserContent end
+  local ok, uc = pcall(hs.webview.usercontent.new, "dashboard")
+  if not (ok and uc) then return nil end
+  uc:setCallback(function(msg)
+    local b = (type(msg) == "table") and msg.body or nil
+    if type(b) ~= "table" then return end
+    if b.action == "pull" and type(b.path) == "string" then
+      pullRepo(b.path, tostring(b.name or b.path))
+    elseif b.action == "confirmPull" then
+      local p = pendingPull
+      pendingPull = nil
+      if p then ghSay("pulling " .. p.name .. "…", "#ffc73a"); p.run() end
+    elseif b.action == "cancelPull" then
+      local p = pendingPull
+      pendingPull = nil
+      ghSay(((p and p.name .. ": ") or "") .. "cancelled — nothing was changed.", "#9aa0a6")
+    end
+  end)
+  ghUserContent = uc
+  return uc
 end
 
 -- Render the popup. `rows` is a list of { name, branch, dirty, ahead, commit, gh }.
@@ -1313,11 +1603,19 @@ local function showGitHubPopup(rows)
     if (r.ahead or 0) > 0 then bits[#bits + 1] = r.ahead .. " unpushed" end
     local localTxt   = (#bits > 0) and table.concat(bits, ", ") or "clean"
     local localColor = (#bits > 0) and "#ff6f6a" or "#4cd964"
+    -- Only "GitHub ahead" is actionable, and only when we know where the repo
+    -- lives. Everything else is a statement, not a button.
+    local ghCell = htmlEscape(g.t)
+    if r.gh == "behind" and r.path and M.allowPullFromPopup ~= false then
+      ghCell = string.format(
+        "<span class='pull' data-path='%s' data-name='%s' title='Pull this repo'>%s ↓</span>",
+        htmlEscape(r.path), htmlEscape(r.name), htmlEscape(g.t))
+    end
     trs[#trs + 1] = string.format(
       "<tr><td class='n'>%s</td><td>%s</td><td style='color:%s'>%s</td>"
       .. "<td style='color:%s'>%s</td><td class='d'>%s</td></tr>",
       htmlEscape(r.name), htmlEscape(r.branch ~= "" and r.branch or "—"),
-      localColor, htmlEscape(localTxt), g.c, htmlEscape(g.t),
+      localColor, htmlEscape(localTxt), g.c, ghCell,
       htmlEscape((r.commit ~= "" and r.commit) or "—"))
   end
   if #trs == 0 then
@@ -1333,17 +1631,41 @@ local function showGitHubPopup(rows)
     th{color:#9aa0a6;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
     td.n{font-weight:600}
     td.d{color:#9aa0a6}
+    .pull{cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+    .pull:hover{text-decoration:underline solid}
+    .act{cursor:pointer;color:#6cf;text-decoration:underline;font-weight:600}
+    #msg{margin:12px 0 0;font-size:11px;color:#9aa0a6;min-height:14px;white-space:pre-wrap}
   </style></head><body>
     <h1>GitHub status</h1>
-    <p class="sub">snapshot at %s · light touch: <code>git ls-remote</code>, your local refs untouched<br>
-      local red = uncommitted or unpushed · &quot;GitHub ahead&quot; = the remote has commits you don't</p>
+    <p class="sub">snapshot at %s · reading only: <code>git ls-remote</code>, your local refs untouched<br>
+      local red = uncommitted or unpushed · &quot;GitHub ahead&quot; = the remote has commits you don't<br>
+      %s</p>
     <table><tr><th>repo</th><th>branch</th><th>local</th><th>github</th><th>last commit</th></tr>%s</table>
-  </body></html>]], when, table.concat(trs, ""))
+    <p id="msg"></p>
+    <script>
+      document.querySelectorAll('.pull').forEach(function (el) {
+        el.addEventListener('click', function () {
+          var m = document.getElementById('msg');
+          if (m) { m.textContent = 'pulling ' + el.dataset.name + '…'; m.style.color = '#ffc73a'; }
+          window.webkit.messageHandlers.dashboard.postMessage(
+            { action: 'pull', path: el.dataset.path, name: el.dataset.name });
+        });
+      });
+    </script>
+  </body></html>]], when,
+    (M.allowPullFromPopup ~= false)
+      and ("click <b>GitHub ahead</b> to pull that repo ("
+           .. ((M.pullFFOnly ~= false) and "fast-forward only" or "merge allowed")
+           .. "); it stops if a claude session is working there or a file it would "
+           .. "change is open in an editor, then asks before changing anything")
+      or "",
+    table.concat(trs, ""))
 
-  local h = math.min(560, 150 + math.max(1, #rows) * 30)
+  local h = math.min(580, 185 + math.max(1, #rows) * 30)   -- + room for the status line
   if ghWebview then pcall(function() ghWebview:delete() end); ghWebview = nil end
   local okv, w = pcall(function()
-    local v = hs.webview.new({ x = 140, y = 140, w = 660, h = h })
+    -- The usercontent controller is what lets a click in the page reach Lua.
+    local v = hs.webview.new({ x = 140, y = 140, w = 660, h = h }, {}, ghBridge())
     -- titled(1) | closable(2) | miniaturizable(4) | resizable(8)
     v:windowStyle(1 + 2 + 4 + 8)
     v:windowTitle("GitHub status")
@@ -1403,7 +1725,8 @@ function M.scanGitHub()
     for line in tostring(stdout or ""):gmatch("[^\n]+") do
       local p, b, dirty, ahead, lc, gh = line:match("^(.-)\t(.-)\t(.-)\t(.-)\t(.-)\t(%S+)$")
       if p then
-        rows[#rows + 1] = { name = nameOf[p] or p, branch = b, dirty = tonumber(dirty) or 0,
+        rows[#rows + 1] = { name = nameOf[p] or p, path = p, branch = b,
+                            dirty = tonumber(dirty) or 0,
                             ahead = tonumber(ahead) or 0, commit = lc, gh = gh }
       end
     end
@@ -1570,13 +1893,17 @@ end
 local function activateElement(elementId)
   if type(elementId) ~= "string" then return end
   if elementId == "resize" then return end   -- a click on the grip resizes nothing
+  if elementId == "rescan" then pcall(M.scanAll); return end
   -- An icon: go to the Desktop AND raise that app's window. Clicking the line
   -- itself deliberately does not — arriving on a Desktop should normally leave
   -- it as you left it; picking an icon is the way to say which window you want.
-  local isid, iwid = elementId:match("^icon:(%-?%d+):(p?%d+)$")
+  local isid, iwid = elementId:match("^icon:(%-?%d+):([pr]?%d+)$")
   if isid then
     clearHover()
     pcall(hs.spaces.gotoSpace, tonumber(isid))
+    -- "r" is a restored icon: we know which app it is but not which window, so
+    -- going to the Desktop is the whole of the action.
+    if iwid:sub(1, 1) == "r" then return end
     if M.iconClickFocus ~= false and iwid:sub(1, 1) == "p" then
       -- CoreGraphics-only app: no window object exists to raise, so bring the
       -- application forward and let it decide which of its windows that means.
@@ -1772,6 +2099,24 @@ draw = function()
     addBlock(M.mode == "both" and M.sessionHeader or nil, sessionEntries())
   end
   if hasStatus then maxChars = math.max(maxChars, uwidth(M.status)) end
+
+  -- Desktops still showing restored state. Counted from the entries already
+  -- built, so this costs no extra hs.spaces calls. Hidden while a scan is
+  -- running: the status line is saying the same thing more precisely.
+  local staleText
+  if M.showStaleHint ~= false and not hasStatus then
+    local n = 0
+    for _, blk in ipairs(blocks) do
+      for _, e in ipairs(blk.entries) do
+        if e.sid and not liveRead[e.sid] then n = n + 1 end
+      end
+    end
+    if n > 0 then
+      staleText = string.format("%d Desktop%s not read yet · click to read them (⌘⌃⌥s)",
+                                n, n == 1 and "" or "s")
+      maxChars = math.max(maxChars, uwidth(staleText))
+    end
+  end
   local legendLines = (M.showLegend and M.legendLines) or {}
   for _, ln in ipairs(legendLines) do maxChars = math.max(maxChars, uwidth(ln)) end
 
@@ -1779,6 +2124,7 @@ draw = function()
   local pad     = 12
   local charW   = charWidth()
   local statusH = hasStatus and (lineH + 9) or 0
+  local staleH  = staleText and (lineH + 9) or 0
   local legendH = (#legendLines > 0) and (10 + #legendLines * (M.fontSize + 3)) or 0
   -- The grip sits in the bottom-right corner, past the end of the legend, so
   -- unlike the buttons it replaced it needs no width reserved for it.
@@ -1788,7 +2134,8 @@ draw = function()
   local maxW    = (M.maxWidth or 760) * wScale
   local bodyW   = math.max(minW - pad * 2, math.ceil(maxChars * charW) + 6 + zoomW)
   local panelW  = math.min(maxW, bodyW + pad * 2)
-  local panelH  = pad * 2 + totalRows * lineH + math.max(0, #blocks - 1) * M.sectionGap + statusH + legendH
+  local panelH  = pad * 2 + totalRows * lineH + math.max(0, #blocks - 1) * M.sectionGap
+                  + statusH + staleH + legendH
 
   -- Which displays get a panel. The content above still describes every screen,
   -- so hiding one display's panel does not remove its Desktops from the list.
@@ -1896,7 +2243,7 @@ draw = function()
           end
           local x  = pad + (w or (uwidth(e.prefix .. e.suffix) + 3) * charW) + iconGap
           local iy = cy + math.max(0, math.floor((lineH - iconSize) / 2))
-          for _, it in ipairs(e.icons.items) do
+          for ii, it in ipairs(e.icons.items) do
             cv:appendElements({
               type = "image", image = it.img, imageScaling = "scaleProportionally",
               frame = { x = x, y = iy, w = iconSize, h = iconSize },
@@ -1908,20 +2255,21 @@ draw = function()
             -- hit-tests. So the rectangle owns both the hover and the click.
             -- "icon:<space>:<windowid>" normally; "icon:<space>:p<pid>" for an
             -- app only CoreGraphics could see, where there is no window object
-            -- to raise and the app itself is the best a click can do.
+            -- to raise and the app itself is the best a click can do; and
+            -- "icon:<space>:r<n>" for one restored from the state file, which
+            -- has no window behind it at all — it still gets a distinct id so
+            -- it can name itself on hover, and clicking it just goes there.
             local iid = (it.wid and ("icon:" .. tostring(e.sid) .. ":" .. tostring(it.wid)))
                         or (it.pid and ("icon:" .. tostring(e.sid) .. ":p" .. tostring(it.pid)))
-                        or elemId
+                        or ("icon:" .. tostring(e.sid) .. ":r" .. ii)
             cv:appendElements({
               type = "rectangle", action = "fill", fillColor = { white = 0, alpha = 0 },
               frame = { x = x, y = iy, w = iconSize, h = iconSize },
               trackMouseEnterExit = (M.showIconTips ~= false),
               trackMouseUp = true, trackMouseDown = true, id = iid,
             })
-            if it.wid or it.pid then
-              iconMeta[iid] = { app = it.app, title = it.title,
-                                x = x, y = iy, w = iconSize, h = iconSize }
-            end
+            iconMeta[iid] = { app = it.app, title = it.title,
+                              x = x, y = iy, w = iconSize, h = iconSize }
             x = x + iconSize + iconGap
           end
           if e.icons.extra > 0 then
@@ -1952,6 +2300,22 @@ draw = function()
         frame = { x = pad, y = cy + 9, w = panelW - pad * 2, h = lineH },
       })
       cy = cy + statusH
+    end
+
+    if staleText then
+      cv:appendElements({
+        type = "rectangle", action = "fill",
+        fillColor = { white = 1, alpha = 0.16 },
+        frame = { x = pad, y = cy + 4, w = panelW - pad * 2, h = 1 },
+      })
+      cv:appendElements({
+        type = "text", text = staleText,
+        textFont = "Menlo", textSize = M.fontSize - 1,
+        textColor = { red = 1, green = 0.72, blue = 0.35, alpha = 1 },
+        frame = { x = pad, y = cy + 9, w = panelW - pad * 2, h = lineH },
+        trackMouseUp = true, trackMouseDown = true, id = "rescan",
+      })
+      cy = cy + staleH
     end
 
     if #legendLines > 0 then
@@ -2156,21 +2520,39 @@ function M.saveLayout()
     local key    = s:getUUID() or s:name() or "screen"
     local spaces = safeSpacesForScreen(s)
     local desktops = {}
+    local pscr = prev and prev.screens and prev.screens[key]
     for i, sid in ipairs(spaces) do
+      local pd = pscr and pscr.desktops and pscr.desktops[i]
       local windows = {}
       local gathered = lastGather[sid]
       if gathered then
         for _, w in ipairs(gathered) do
           windows[#windows + 1] = { app = w.app, doc = w.doc or "", title = w.title or "" }
         end
-      else
-        local pscr = prev and prev.screens and prev.screens[key]
-        local pd   = pscr and pscr.desktops and pscr.desktops[i]
-        if pd and type(pd.windows) == "table" then windows = pd.windows end
+      elseif pd and type(pd.windows) == "table" then
+        windows = pd.windows
+      end
+      -- The icon row is saved for the same reason the NAME is: so a Desktop you
+      -- haven't visited yet still shows something on launch. Bundle ids are all
+      -- it takes to draw an icon — no window read needed — which is why this
+      -- was the missing half. Window ids are deliberately NOT saved: they are
+      -- reused after a reboot, so a stale one could raise a window that has
+      -- nothing to do with the icon you clicked. A restored icon shows and
+      -- names itself; it just doesn't raise anything until the Desktop is read.
+      local icons, live = nil, iconApps[sid]
+      if live then
+        local apps = {}
+        for _, a in ipairs(live) do
+          if a.bundle and a.bundle ~= "" then apps[#apps + 1] = { bundle = a.bundle, app = a.app or "" } end
+        end
+        icons = { named = live.named and true or false, min = live.min or 0,
+                  lead = live.lead or #apps, apps = apps }
+      elseif pd and type(pd.icons) == "table" then
+        icons = pd.icons                       -- carry an unread Desktop forward
       end
       desktops[i] = {
         index = i, name = overrides[sid] or labelCache[sid] or "",
-        manual = overrides[sid] ~= nil, windows = windows,
+        manual = overrides[sid] ~= nil, windows = windows, icons = icons,
       }
     end
     state.screens[key] = { name = s:name() or "", desktops = desktops,
@@ -2212,6 +2594,23 @@ local function restoreNames()
         if d and d.name and d.name ~= "" then
           labelCache[sid] = d.name
           if d.manual then overrides[sid] = d.name end
+        end
+        -- Icons come back with the names, so a fresh launch looks like the panel
+        -- you left rather than a column of bare words waiting on ⌘⌃⌥S.
+        if d and type(d.icons) == "table" and type(d.icons.apps) == "table" then
+          local list = {}
+          for _, a in ipairs(d.icons.apps) do
+            if type(a) == "table" and a.bundle and a.bundle ~= "" then
+              list[#list + 1] = { bundle = a.bundle, app = a.app or "?" }
+            end
+          end
+          if #list > 0 then
+            list.named    = d.icons.named and true or false
+            list.min      = tonumber(d.icons.min) or 0
+            list.lead     = tonumber(d.icons.lead) or #list
+            list.restored = true
+            iconApps[sid] = list
+          end
         end
       end
     end

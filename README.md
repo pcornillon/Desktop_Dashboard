@@ -118,7 +118,8 @@ instead, visible from every Desktop.
 - **Auto-refreshes** on window open/close, Desktop switch, and a periodic backstop; the
   session dots poll faster still (~3 s).
 - **Custom names** (⌘⌃⌥n) override auto-detection and are remembered.
-- **Remembers** your view, panel position and Desktop names across reloads and reboots.
+- **Remembers** your view, panel position, size, Desktop names **and app icons** across
+  reloads and reboots, and says how many Desktops it hasn't read first-hand yet.
 
 ## Install
 
@@ -386,11 +387,34 @@ Turn the tips off with `M.showIconTips = false`, or the window-raising with
 `M.iconClickFocus = false`. `M.iconTipDelay` is how long you must rest on an icon before
 it names itself (0.18 s — enough that sweeping across the row doesn't flash every name).
 
-Icons come from the live window read, so a Desktop whose name was restored from your last
-session shows its old text until it's next scanned (⌘⌃⌥s, or just visit it) — the same
-constraint as everything else the panel reads. If more than `M.maxAppIcons` (6) apps are
-present, the rest are summarised as `+N`. Set `M.showAppIcons = false` to go back to the
-words; `M.appIconGap` and `M.appIconBump` tune spacing and size.
+If more than `M.maxAppIcons` (6) apps are present, the rest are summarised as `+N`. Set
+`M.showAppIcons = false` to go back to the words; `M.appIconGap` and `M.appIconBump` tune
+spacing and size.
+
+### Icons after a reload
+
+Icons are saved with the Desktop names, so they come straight back when Hammerspoon
+reloads — you don't have to scan to get your panel looking like itself again.
+
+What they can't be is *current*. macOS only lets an app read the windows of the Desktop
+you're actually looking at, so until you visit a Desktop (or press ⌘⌃⌥s) its row is last
+session's picture. Usually that's right. Occasionally it isn't — a window that has since
+been closed keeps its icon until that Desktop is read again.
+
+So the panel tells you which ones are second-hand, just above the legend:
+
+```
+10 Desktops not read yet · click to read them (⌘⌃⌥s)
+```
+
+Click it and it reads them all, exactly as ⌘⌃⌥s does — which takes over your displays for
+about 25 seconds, which is why it asks rather than doing it on its own. The count drops as
+you visit Desktops normally, and the line disappears when nothing is left unread.
+
+Two smaller consequences of a restored row: a restored icon has no window behind it, so
+clicking it just switches to that Desktop rather than raising a particular window, and it
+names only the app when you hover it. Both go back to full behaviour once the Desktop is
+read. `M.showStaleHint = false` hides the line.
 
 ### ⌘⌃⌥g — GitHub status, on demand
 
@@ -411,6 +435,109 @@ reads the remote's head SHA without fetching anything or updating your local ref
 never changes what `git status` shows in your own terminal. It runs in the background with
 a timeout (`M.githubTimeout`), so a slow remote can't wedge the panel. A "last push" time
 isn't shown because git doesn't record one; the last *commit* time is what's available.
+
+### Click "GitHub ahead" to pull
+
+Rows that say **GitHub ahead** are clickable: one click pulls that repo. The result appears
+at the bottom of the popup, and the panel's git dot updates. This is the only thing in the
+tool that writes to one of your repositories.
+
+It pulls with **`--ff-only`**, and that matters more than it sounds. "GitHub ahead" means
+the remote has commits you don't — but it *also* covers the case where you have commits the
+remote doesn't, and the two histories have diverged. A plain `git pull` answers that with a
+merge commit: a change to your history from a single click, in a window with nowhere to
+resolve a conflict. `--ff-only` takes the straightforward case — someone (probably you)
+pushed from another machine — and refuses the rest, in git's own words:
+
+```
+fatal: Not possible to fast-forward, aborting.
+```
+
+Nothing has moved when you see that, and it's your cue to go and merge deliberately, in a
+terminal, where you can see what you're doing. The same applies if a local edit is in the
+way: git says so and the popup repeats it.
+
+**Two things it checks before pulling** — both things git can't see, but the panel can:
+
+*A claude session working in that repo.* Files changing under a session that's mid-task
+won't destroy anything, but it leaves that session reasoning about files that no longer
+say what it read. So a pull stops while the session dot is yellow:
+
+```
+Aborting the pull: a claude session is working in opendap-registry.
+Wait for it to finish, or pull in a terminal.
+```
+
+A session that's merely *open* doesn't block — if it did, almost every repo would be
+blocked almost all the time. `M.pullBlockOnClaude = "any"` makes it strict.
+
+*A file the pull would change that you have open in an editor.* This is the one real way
+this button could cost you work, and it isn't git's doing: your editor is holding the old
+text, and your next save writes it back over what just arrived. So the pull looks at what
+would change first, and stops if you have any of it open:
+
+```
+Aborting the pull: MODIS_L2 would change notes.md, which you have open.
+Close it, or handle this in a terminal session.
+```
+
+Close the file and click again.
+
+**Then it asks.** Once both checks pass you get a prompt naming what's about to happen,
+so you're agreeing to something specific rather than to "a pull":
+
+```
+Pull MODIS_L2? 3 files will change: extra.txt, notes.md, run.lua.
+If any of these are open in an editor, close them first — saving from an
+old copy would undo the pull.
+Pull · Cancel
+```
+
+Cancel changes nothing. `M.pullConfirm = false` skips the prompt.
+
+### What to be careful about
+
+The pull itself is safe — it's the only thing in this tool that writes to a repository, and
+it only ever fast-forwards, so it cannot lose committed work or leave you in a half-merged
+state. What deserves attention is everything *around* it:
+
+**The open-file check can't see every editor.** It knows about the editors listed in
+`M.docApps` — MacDown, VS Code, TextEdit, Preview, Word and the rest — and only for
+Desktops the panel has actually read since Hammerspoon started. **TeXShop is not on that
+list** and is invisible to the check, as are Electron-based editors. TeXShop is left off
+deliberately: asking some apps for their open document is slow enough to stall the whole
+panel, which is the reason `M.docApps` is an allowlist rather than "everything". So treat
+a clean check as *nothing known to be open*, never as *nothing is open* — if you have a
+file open in TeXShop, the panel doesn't know, and it's on you to close it.
+
+**An idle claude session doesn't block the pull.** Only a session that's actively working
+does (the yellow dot). A session sitting at a prompt is fine to pull under — it re-reads
+files when it next runs — but if you'd rather be strict, `M.pullBlockOnClaude = "any"`.
+
+**Don't save from a window you had open before the pull.** Your editor is holding the old
+version of the file in memory; the pull replaces the file on disk. Save from that editor
+afterwards and you write the old text back over what just arrived — undoing the pull. No
+git command did it, so nothing warns you. If a file from that repo is open somewhere the
+check couldn't see, close it before you save.
+
+**Checking the remote updates your tracking refs.** To find out what would change, this
+fetches — so `origin/main` moves even when you then cancel. That's normal and harmless, but
+it's why the "nothing touched" promise belongs to the ⌘⌃⌥g *query* and not to this button.
+
+**If a pull is interrupted** — it's killed after `M.pullTimeout` (2 minutes) — git very
+occasionally leaves a `.git/index.lock` file behind, after which every git command in that
+repo complains that another process is running. The fix is to delete that one file.
+
+**When it refuses, believe it.** `fatal: Not possible to fast-forward` means your copy and
+GitHub have both moved on, and reconciling them is a decision, not a button. Do that in a
+terminal where you can see what you're merging.
+
+**There's no push button, on purpose.** A fast-forward pull can't lose work; a push can.
+
+`M.allowPullFromPopup = false` removes the link; `M.pullFFOnly = false` allows the merge;
+`M.pullTimeout` bounds a slow fetch. One caveat worth knowing: a pull *does* fetch, so it
+updates your `origin/…` tracking refs even when it declines to move your branch. The
+"nothing touched" promise belongs to the ⌘⌃⌥g query, not to this button.
 
 ## How a Desktop gets its label
 
@@ -463,6 +590,12 @@ need changing:
   window as well as switching Desktops, and how long it waits for the switch to settle.
 - `M.githubHotkey`, `M.githubTimeout` — the on-demand GitHub popup (⌘⌃⌥g) and how long to
   wait before killing a hung query.
+- `M.allowPullFromPopup`, `M.pullFFOnly`, `M.pullTimeout` — clicking "GitHub ahead" to pull
+  that repo, whether a non-fast-forward merge is allowed, and how long a pull may take.
+- `M.pullBlockOnClaude` (`"working"` / `"any"` / `false`), `M.pullBlockOnOpenFiles` — the
+  two checks made before a pull: a busy claude session in that repo, and a file the pull
+  would change being open in an editor.
+- `M.pullConfirm` — the prompt that names what a pull will change before it does it.
 - `M.claudeOnlyHintApps` / `M.claudeTitleMarker` — terminals whose titles count as a repo
   hint only while running claude. Add your terminal if it isn't listed.
 - `M.docApps` — apps asked for their open file's path. **Keep slow apps
@@ -478,6 +611,7 @@ need changing:
   Desktop you're on is marked. If you change the markers, keep them the **same rendered
   width** or that line will stop lining up with the others; `▸` happens to be exactly one
   Menlo cell, which is why the default is a caret plus two spaces against three spaces.
+- `M.showStaleHint` — the clickable line counting Desktops not yet read first-hand.
 - `M.corner`, `M.fontSize`, `M.showLegend`, `M.legendLines` — appearance.
 - `M.minWidth`/`M.maxWidth`, `M.baseFontSize` — the width bounds, in px **at
   `M.baseFontSize`**. They scale with the current size, so zooming in doesn't clip the

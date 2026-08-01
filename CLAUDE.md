@@ -228,6 +228,83 @@ claude session (terminals), and everything else contributes normally.
   "GitHub ahead" (which also covers a true divergence, where the remote SHA isn't even in
   the local object store). `GIT_TERMINAL_PROMPT=0` + an `M.githubTimeout` watchdog mean a
   remote that needs credentials fails fast instead of hanging the query.
+- **Clicking "GitHub ahead" pulls, and `--ff-only` is the whole design.** This is the only
+  thing in the tool that WRITES to one of your repositories, so it is the one place that
+  has to be conservative instead of clever. The trap is that `behind` is not only "you are
+  behind": as the ls-remote note above says, it also covers a true DIVERGENCE, where the
+  remote SHA isn't even in the local object store. A plain `git pull` answers divergence
+  with a merge commit — a rewrite of your history from a single click, in a window with
+  nowhere to resolve a conflict. `--ff-only` takes the easy case (someone pushed from your
+  other machine, which is what this button is for) and refuses everything else out loud.
+  Verified 2026-08-01 on a throwaway repo: behind-only fast-forwards; diverged returns
+  `fatal: Not possible to fast-forward, aborting.` with HEAD unmoved. `M.pullFFOnly =
+  false` allows the merge for anyone who wants it.
+- **The pull refuses while a claude session is WORKING in that repo, not merely open.**
+  Changing files under a session that is mid-task destroys nothing, but it leaves that
+  session reasoning about files that no longer say what it read. "Working" is the real
+  hazard and is what blocks. Blocking on any live session was considered and rejected:
+  on the machine this was built for a session is open in most repos most of the time, so
+  that rule would have refused nearly every pull and the button would be decoration.
+  `M.pullBlockOnClaude = "any"` for anyone who wants it strict. The test is `claudeStates`
+  — the live read of terminal titles — and NOT `claudeStateFor`, which returns nil once
+  you have acknowledged a session and would therefore call a busy repo clear.
+- **The open-file check exists because that is the only way this button can lose work, and
+  it isn't git's fault.** Git protects what it knows about: verified 2026-08-01 that an
+  uncommitted edit to an unrelated file survives a pull untouched, and an uncommitted edit
+  to a file the pull wants results in `Please commit your changes or stash them before you
+  merge. Aborting.` What git cannot see is an editor holding an old copy in memory — pull
+  new text, then save from that editor, and the incoming change is gone with no git
+  operation to blame. This panel already reads the open document of every editor in
+  `M.docApps` for repo detection, so it is the one component that CAN see it.
+  - **Learn what would change without changing anything:** `git fetch` (which the pull
+    would do anyway, and which only moves the `origin/…` tracking ref) then
+    `git diff --name-only HEAD..@{u}`. Those paths are matched against the open documents.
+  - **Abort, don't warn.** A warning still leaves the stale buffer sitting in front of
+    you; the failure mode is a save you make a minute later, long after the warning is
+    gone. Closing the file and clicking again costs seconds.
+  - **A clean check means "nothing KNOWN to be open", never "nothing is open."** It sees
+    only `M.docApps` editors, only on Desktops read since launch. Never let this guard
+    imply a guarantee, in the UI or in the docs.
+  - **TeXShop is knowingly outside the check, and was left that way (2026-08-01).** It is
+    a real editor for this user's repos, so the gap is real — but `docApps` is an
+    allowlist precisely because asking some apps for `AXDocument` can stall the panel for
+    minutes, and TeXShop has never been measured. Adding it to close this gap would trade
+    a documented blind spot for a possible hang in the read path, which is the one thing
+    this file has spent the most effort protecting. Documented in the README's "What to be
+    careful about" instead. If it is ever added, measure the `AXDocument` read first.
+  - The precheck talks to the network too, so it carries the same watchdog as the pull.
+    Without one a wedged fetch leaves `pullPrecheckTask` set and every later click reports
+    "a pull is already running".
+- **The confirmation comes AFTER the checks, so it can name what will change.** "Are you
+  sure?" is a speed bump you learn to click through; "3 files will change: notes.md,
+  run.lua, extra.txt" is a decision. The file list is already in hand from the precheck, so
+  the informative version costs nothing. It also means the prompt only ever appears for a
+  pull that is actually going to happen — the blocked cases say why instead of asking.
+- **The prompt lives INSIDE the popup, not in a system dialog.** `hs.dialog.blockAlert`
+  would be less code, but an alert raised by Hammerspoon while another app is frontmost can
+  open BEHIND that app — the most likely explanation for the "⌘⌃⌥N does nothing" report on
+  2026-07-30. The popup is already frontmost under the cursor, so the two links go in its
+  status area and post back through the same `usercontent` bridge as the pull link. It
+  also avoids a modal blocking the Lua state while a task callback is mid-flight.
+- **Git's refusals are shown verbatim, not second-guessed.** A dirty file in the way, or a
+  history that can't fast-forward, is exactly what you want to be TOLD rather than have
+  handled for you — and git's messages are better than any pre-flight check this tool
+  would write. So there is no dirty-tree guard; git decides and the popup repeats it.
+- **There is no push button, deliberately.** A fast-forward pull cannot lose work. A push
+  can. The asymmetry is the whole reason one is offered and the other isn't.
+- **A click reaches Lua through an `hs.webview.usercontent` controller.** The page posts to
+  `window.webkit.messageHandlers.dashboard`; the controller is built ONCE and reused,
+  because `showGitHubPopup` deletes and rebuilds the webview on every ⌘⌃⌥g while the
+  controller outlives it. The pull itself runs through `hs.task` with its own watchdog
+  (`M.pullTimeout`, longer than the query's — a pull fetches objects), for the same reason
+  everything else here is async: nothing that touches the network may block the panel.
+- **The success line is timed to be read.** A successful pull re-runs the whole query so
+  every row is true again, not just the clicked one — but that rebuilds the popup and takes
+  the result with it. Measured at 1.2 s the message was gone before it could be read;
+  2.5 s. On failure there is no rescan, so git's message stays until dismissed.
+- **A pull does update `origin/main`**, unlike the query. `git pull --ff-only` fetches even
+  when it then refuses to move your branch. That is normal and harmless, but it means the
+  "your local refs untouched" promise belongs to the ⌘⌃⌥g *query*, not to the button.
 - **No "last push" time — git doesn't record one.** The popup shows the last *commit* time
   (`log -1 %cd`), which is real; a push timestamp would have to be invented or fetched, so
   it isn't shown.
@@ -286,6 +363,32 @@ claude session (terminals), and everything else contributes normally.
     a pid — no title, no `AXDocument` — so they can never touch repo detection, and there
     is no window object to raise. Clicking one activates the *application* instead, which
     is why an icon id can be `icon:<space>:p<pid>` as well as `icon:<space>:<windowid>`.
+- **The icon row is saved to disk with the name, because it costs a bundle id.** Names have
+  always survived a reload; icons did not, so every reload (and every `git pull` of this
+  file) left a panel of bare words until ⌘⌃⌥S walked all thirteen Desktops. That was never
+  a platform limit — an icon needs only a bundle id, no window read at all — it was simply
+  the half of `saveLayout` that was missing. Reported 2026-08-01 as "why do I have to press
+  ⌘⌃⌥s after every change"; the honest answer was that I hadn't saved them.
+  - **Window ids are deliberately NOT saved.** They are reused after a reboot, so a stale
+    one could raise a window that has nothing to do with the icon you clicked — a wrong
+    action is worse than a missing one. A restored icon still draws and still names itself
+    on hover; it just has no window behind it, so it gets an `icon:<sid>:r<n>` id and a
+    click on it only goes to the Desktop. Full behaviour returns the moment that Desktop
+    is read.
+  - **A restored row can show something that is gone.** Observed immediately: a
+    `Problem Reporter` (crash dialog) window that had been on a Desktop was still in its
+    saved row afterwards. This is the same staleness the restored NAME has always had, and
+    the fix is the same — read the Desktop. What makes it honest rather than misleading is
+    the hint line below.
+- **A count of unread Desktops sits above the legend, and clicking it reads them.** macOS
+  only lets us read the Desktop you are looking at, so after a reload the rest are last
+  session's picture until visited. The panel now says so — "10 Desktops not read yet ·
+  click to read them (⌘⌃⌥s)" — counts itself down as Desktops are read, and disappears at
+  zero. It is computed from the entries `draw()` has already built, so it costs no extra
+  `hs.spaces` calls, and it hides while a scan is running because `M.status` is saying the
+  same thing more precisely. Asking rather than scanning automatically is deliberate: a
+  ⌘⌃⌥S walk takes over both displays for ~25 s, which is not something to do to someone
+  unprompted every time they reload.
 - **A line is a NAME and an ICON ROW, and they answer different questions.** The name says
   what the Desktop is *for*; the icons say what is *on* it. Because they are independent,
   ⌘⌃⌥N replaces the name and leaves the icons alone — renaming a Desktop cannot change
