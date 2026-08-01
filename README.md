@@ -404,7 +404,7 @@ been closed keeps its icon until that Desktop is read again.
 So the panel tells you which ones are second-hand, just above the legend:
 
 ```
-10 Desktops not read yet · click to read them (⌘⌃⌥s)
+10 Desktops not read yet · click here or press ⌘⌃⌥s to read them
 ```
 
 Click it and it reads them all, exactly as ⌘⌃⌥s does — which takes over your displays for

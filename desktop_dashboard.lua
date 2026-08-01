@@ -65,7 +65,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v45 (say plainly why an open editor matters before a pull, 2026-08-01)"
+M.version = "v46 (name both ways to read the unread Desktops, 2026-08-01)"
 
 -- ============================ CONFIG ============================
 
@@ -2112,8 +2112,12 @@ draw = function()
       end
     end
     if n > 0 then
-      staleText = string.format("%d Desktop%s not read yet · click to read them (⌘⌃⌥s)",
-                                n, n == 1 and "" or "s")
+      -- Both ways of doing it, named as what they are: the line is a click
+      -- target AND ⌘⌃⌥S does the same thing. An earlier draft put the hotkey in
+      -- a trailing parenthesis, which read as a footnote rather than an action.
+      staleText = string.format(
+        "%d Desktop%s not read yet · click here or press ⌘⌃⌥s to read them",
+        n, n == 1 and "" or "s")
       maxChars = math.max(maxChars, uwidth(staleText))
     end
   end

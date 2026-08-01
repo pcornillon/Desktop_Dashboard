@@ -383,8 +383,11 @@ claude session (terminals), and everything else contributes normally.
 - **A count of unread Desktops sits above the legend, and clicking it reads them.** macOS
   only lets us read the Desktop you are looking at, so after a reload the rest are last
   session's picture until visited. The panel now says so — "10 Desktops not read yet ·
-  click to read them (⌘⌃⌥s)" — counts itself down as Desktops are read, and disappears at
-  zero. It is computed from the entries `draw()` has already built, so it costs no extra
+  click here or press ⌘⌃⌥s to read them" — counts itself down as Desktops are read, and
+  disappears at zero. It names BOTH ways of acting because both exist: the line is a click
+  target and the hotkey does the same thing. An earlier draft trailed the hotkey in a
+  parenthesis, which read as a footnote rather than as something to do (reported
+  2026-08-01). It is computed from the entries `draw()` has already built, so it costs no extra
   `hs.spaces` calls, and it hides while a scan is running because `M.status` is saying the
   same thing more precisely. Asking rather than scanning automatically is deliberate: a
   ⌘⌃⌥S walk takes over both displays for ~25 s, which is not something to do to someone
