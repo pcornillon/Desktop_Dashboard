@@ -60,11 +60,21 @@ claude session (terminals), and everything else contributes normally.
 
 ## Key decisions and why
 
-- **Overlay, not renaming.** macOS has no API to change a Space's Mission Control label.
-  The only ways are `spaces-renamer` (needs SIP disabled — a Recovery‑Mode reboot and a
-  security downgrade) or SpaceJump (paid, no scripting hook). An overlay is free, SIP‑free,
-  and fully scriptable. Consequence: the name shows in our panel / menu‑bar‑style overlay,
-  not in the Mission Control thumbnail.
+- **Overlay, not renaming.** macOS still exposes no API for changing a Space's Mission
+  Control label. `spaces-renamer` did it by injecting into the Dock, which needs SIP
+  disabled — a Recovery-Mode reboot and a standing security downgrade — and is reported
+  broken on Apple Silicon and macOS 14.4+. SpaceJump is the paid alternative.
+  **Checked 2026-08-02, and the earlier version of this entry is now wrong:** SpaceJump
+  says it puts custom names *inside Mission Control* on Apple Silicon **without** SIP
+  changes, by drawing overlay windows rather than injecting into the Dock. That is vendor
+  copy, not something measured here, but it is enough that "the only way is SIP-off"
+  can no longer be stated. What has not changed is the part that decided this project:
+  neither tool offers a scripting hook, and naming was never the point — the panel exists
+  to report live session, git and window state, which no renamer does. An overlay is free,
+  SIP-free and fully scriptable. Consequence, unchanged: the name shows in our panel, not
+  in the Mission Control thumbnail. If a future rewrite wants names in the thumbnail,
+  SpaceJump's approach (overlay windows positioned over Mission Control) is the lead
+  worth following.
 - **Hammerspoon as runtime.** Free, notarized, no SIP, and exposes `hs.spaces`,
   `hs.window`, `hs.canvas`, and space/window watchers — everything needed.
 - **Read a Desktop only while it's active.** macOS Accessibility cannot read the windows

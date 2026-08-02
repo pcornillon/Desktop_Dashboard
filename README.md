@@ -79,9 +79,19 @@ itself anywhere; each display remembers where you put it.
 
 ## Why an overlay
 
-macOS has no supported way to rename a Space's Mission Control label without disabling
-System Integrity Protection or buying a helper app. So this draws its own always-on panel
-instead, visible from every Desktop.
+macOS still gives apps no API for renaming a Space's Mission Control label, so this draws
+its own always-on panel instead, visible from every Desktop.
+
+If renaming is all you're after, that's a solved problem elsewhere and you should use those
+instead: [SpaceJump](https://www.getspacejump.com/) puts custom names inside Mission Control
+itself (paid, one-time), and the older `spaces-renamer` did the same by injecting into the
+Dock, though it needs SIP disabled and is reported broken on Apple Silicon.
+
+This panel is doing a different job. Renaming tells you what you decided to call a Desktop;
+this tells you what's *on* one and what it's *doing* right now — which repo, which apps,
+whether a `claude` session there is working or waiting for you, whether the repo has
+anything GitHub doesn't. That's live state, and it's scriptable, free and needs no SIP
+changes.
 
 ## What it does
 
