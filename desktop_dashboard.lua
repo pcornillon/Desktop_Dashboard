@@ -65,7 +65,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v51 (merge: session-named Desktops, legend buttons, remote alerts, 2026-08-04)"
+M.version = "v52 (only a live session is coloured; only a document names a project, 2026-08-04)"
 
 -- ============================ CONFIG ============================
 
@@ -81,25 +81,13 @@ M.ignoreApps = {
 -- Apps whose window titles must NOT feed the repo hint, though the app itself
 -- still counts toward the Desktop's subject.
 --
--- A Terminal running `claude` in a repo puts the WORKING DIRECTORY in its title
--- — a real statement about which repo this Desktop is for. The Claude desktop
--- app puts the CONVERSATION NAME in its title, which may contain a repo name
--- merely because that's what you're discussing. Same words, different meaning:
--- the app is a workspace of its own, not a checkout of a repo. Without this,
--- a chat about Desktop Dashboard relabels the Desktop as Desktop_Dashboard.
---
--- Chat apps and browsers both title themselves by topic: a conversation name,
--- or a page title such as "pcornillon/Desktop_Dashboard · GitHub". Neither says
--- the Desktop *is* that repo's workspace.
--- Finder is here because a Finder window's title is the folder you happen to
--- be BROWSING. Parking Finder in a repo to copy one file out of it should not
--- rename the Desktop after that repo, and in practice it did.
-M.noRepoHintApps = {
-  ["Claude"] = true, ["ChatGPT"] = true, ["Finder"] = true,
-  ["Safari"] = true, ["Google Chrome"] = true, ["Firefox"] = true,
-  ["Microsoft Edge"] = true, ["Arc"] = true, ["Brave Browser"] = true,
-  ["Chromium"] = true, ["Opera"] = true, ["Vivaldi"] = true,
-}
+-- `M.noRepoHintApps` lived here: the list of apps whose window titles were
+-- withheld from repo detection because they name a TOPIC rather than a
+-- location — chat apps, browsers, Finder. D75 deleted the mechanism it fed. A
+-- title is no longer evidence of anything: only a document open under a repo
+-- root names a Desktop, so there is nothing left to withhold a title from.
+-- D8 and D9, which this list existed for, are superseded rather than wrong —
+-- they were right about titles, and D75 stopped reading titles at all.
 
 -- Terminals are the in-between case. A shell sitting in a repo is weak
 -- evidence — you cd through directories all day — but a terminal running
@@ -368,9 +356,10 @@ M.highlightActive = true
 M.activeMarker    = "▸  "
 M.inactiveMarker  = "   "
 M.activeColor     = { red = 1.00, green = 0.45, blue = 0.90, alpha = 1 }
--- D67. The colour of a Desktop named after the projects its windows belong to
--- when NO claude session is running there — "still set up for this, come back
--- and restart it".
+-- The colour of a Desktop named after a LIVE CLAUDE SESSION (D75). Everything
+-- else on the panel — a Desktop named after the project whose document is open
+-- on it, an app, a bucket like Utility — is plain white, so the eye goes
+-- straight to the Desktops where something is running.
 --
 -- TEAL, and every warmer or bluer choice is already taken (D74). Yellow is the
 -- working dot. Orange was tried and rejected on sight: the scan status and the
@@ -378,9 +367,8 @@ M.activeColor     = { red = 1.00, green = 0.45, blue = 0.90, alpha = 1 }
 -- read as one family. Magenta is the Desktop you are standing on. BLUE is the
 -- one that looks right and is worst — the legend's clickable words are blue and
 -- the legend says so in words, and the section headings are within a hair of the
--- same blue. Teal is cool, unclaimed, and legible on the dark panel, and reading
--- as dormant beside the warm "live" cues is exactly the meaning wanted.
-M.projectColor    = { red = 0.30, green = 0.80, blue = 0.75, alpha = 1 }
+-- same blue. Teal is cool, unclaimed, and legible on the dark panel.
+M.sessionColor    = { red = 0.30, green = 0.80, blue = 0.75, alpha = 1 }
 M.maxProjects     = 2           -- how many projects such a Desktop may name
 
 M.corner          = "topleft"
@@ -1212,40 +1200,21 @@ local function repoForPath(path)
   return nil
 end
 
--- The project ONE window points at, or nil (D67). Per-window rather than per
--- Desktop, because a Desktop with no session is now named by the projects its
--- windows belong to, ranked by how many windows each has — which needs a count,
--- not a first match.
+-- The project ONE window points at, or nil. Per-window rather than per Desktop,
+-- because a Desktop with no session is named by the projects its windows belong
+-- to, ranked by how many windows each has — which needs a count, not a first
+-- match.
 --
--- Finder is asked here even though D7 removed it from the repo hint, and the
--- reversal is deliberate: D7's objection was that a Finder window parked in a
--- repo named the wrong SUBJECT for a Desktop whose work was MATLAB. This label
--- does not claim to be the subject. It says "there are windows here belonging
--- to this project" — which is exactly what a Finder window parked in it is.
--- Only an exact match counts, since a Finder window's title is its folder's
--- name: a window inside a subfolder names the subfolder and is ignored.
+-- AN OPEN DOCUMENT IS THE ONLY EVIDENCE (D75). Not a Finder window parked in the
+-- repo, not a repo name spotted in a window title: those name where you were
+-- *browsing* or what you were *talking about*, and moving Finder from one
+-- project to another is a keystroke. A document open from the project is the one
+-- thing that says work is set up here.
+--
+-- Only `M.docApps` is asked for a path at all (**D5** — the slow-AXDocument
+-- allowlist), so that list is exactly the set of apps that can name a Desktop.
 local function projectOfWindow(app, title, doc)
-  local byDoc = repoForPath(doc)              -- editors in docApps only (D5)
-  if byDoc then return byDoc end
-  title = tostring(title or "")
-  if title == "" then return nil end
-  local nt = normalize(title)
-  if app == "Finder" then
-    for _, r in ipairs(repos) do
-      if r.norm == nt then return r.name end
-    end
-    return nil
-  end
-  -- A terminal contributes through the SESSION path or not at all (D7): a shell
-  -- is wherever you last cd'd, which is not evidence of anything.
-  if M.noRepoHintApps[app] or M.claudeOnlyHintApps[app] then return nil end
-  local best, bestLen = nil, 0
-  for _, r in ipairs(repos) do
-    if #r.norm >= 4 and nt:find(r.norm, 1, true) and #r.norm > bestLen then
-      best, bestLen = r.name, #r.norm
-    end
-  end
-  return best
+  return repoForPath(doc)
 end
 
 -- Rank a Desktop's per-window project hits and keep the top M.maxProjects.
@@ -1267,8 +1236,6 @@ local function rankProjects(hits)
 end
 
 -- funcs: functional (non-ignored) windows on the Desktop.
--- ctx:   text of ALL window titles on the Desktop (incl. Terminal/Finder) plus
---        the functional apps' names — used only to spot a repo name.
 --
 -- Returns the label AND the kind of evidence behind it: "repo", "cwd", "app"
 -- (one app, so the label is its name), "apps" (two or more apps, so the label
@@ -1279,33 +1246,20 @@ end
 -- Returns label, kind, and the ranked project list behind it. This is the
 -- NO-SESSION half of D67 — a Desktop that has live sessions is drawn from
 -- sessionGroupsFor instead and never reaches here for its name.
-local function detectLabel(funcs, ctx, claudeCwd, projHits)
+local function detectLabel(funcs, claudeCwd, projHits)
   -- 1) the projects this Desktop's own windows belong to, ranked by how many
   --    windows each has, at most two, joined with " / ".
   local projs = rankProjects(projHits)
   if #projs > 0 then return table.concat(projs, " / "), "project", projs end
-  -- 1.5) a claude session running here. Its working directory is a fact about
-  --      this Desktop, so it outranks any repo name merely *mentioned* in some
-  --      window's text — and it works whether or not the directory is a repo.
+  -- 1.5) a claude session running here whose window could not be placed on a
+  --      Desktop (a minimized terminal). Its working directory is still a fact
+  --      about this Desktop.
   if claudeCwd and claudeCwd ~= "" then return claudeCwd, "cwd" end
-  -- 2) a repo name in any title on the Desktop. Kept as a fallback below the
-  --    per-window pass: it reads the Desktop's whole text at once, so it can
-  --    still catch a project no single window claimed on its own.
-  local nc = normalize(ctx or "")
-  local proj, projLen = nil, 0
-  for _, r in ipairs(repos) do
-    if #r.norm >= 4 and nc:find(r.norm, 1, true) and #r.norm > projLen then proj, projLen = r.name, #r.norm end
-  end
-  if proj then return proj, "project", { proj } end
-  -- 3) token overlap.
-  local ctoks = tokenSet(nc)
-  local best, bestScore = nil, 1
-  for _, r in ipairs(repos) do
-    local score = 0
-    for t in pairs(r.tokens) do if ctoks[t] then score = score + 1 end end
-    if score > bestScore then best, bestScore = r.name, score end
-  end
-  if best then return best, "project", { best } end
+  -- There is no rule 2 or 3 any more. A repo name found in a window's TITLE, and
+  -- the looser token-overlap match below it, both named a Desktop after
+  -- something merely mentioned on it — a mail subject, a Slack channel, a
+  -- MATLAB path — and D75 removed them. A project names a Desktop only when one
+  -- of its documents is open there.
   -- 4) no repo — fall back to the apps. One app → its own name (Mail); several
   --    apps sharing one subject → that subject (Communication); several
   --    different subjects → Utility.
@@ -1399,7 +1353,7 @@ end
 -- for repo hints. Terminal/Finder are excluded from the subject decision but
 -- their titles still feed the repo hint.
 local function readSpaceFrom(byId, sid, byCg)
-  local funcs, ctx, claudeCwd, extras = {}, {}, nil, {}
+  local funcs, claudeCwd, extras = {}, nil, {}
   local projHits = {}                   -- one entry per window that names a project
   local ghosts, ghostSeen = {}, {}      -- apps only CoreGraphics can see
   local ids = safeWindowsForSpace(sid)
@@ -1438,33 +1392,17 @@ local function readSpaceFrom(byId, sid, byCg)
           -- directory is not one of the repo roots.
           local sessCwd = claudeCwdFromTitle(title)
           if sessCwd and not claudeCwd then claudeCwd = sessCwd end
-          -- Decide what of this window's title may suggest a repo. Three cases:
-          -- never (browsers, chat apps, Finder), only-if-claude (terminals),
-          -- and everything else, which contributes its whole title.
-          local hint, hintText = true, title
-          if M.noRepoHintApps[app] then
-            hint = false
-          elseif M.claudeOnlyHintApps[app] then
-            -- A session contributes ONLY its working directory. Its task summary
-            -- is prose about the work, and repo names matched inside prose are
-            -- where every false positive so far has come from: a summary reading
-            -- "config structure for Claude projects" shares two tokens with the
-            -- repo `claude-config` and relabeled the Desktop after it.
-            hint, hintText = sessCwd ~= nil, sessCwd
-          end
-          if hint and hintText then ctx[#ctx + 1] = hintText end
           -- bundleID comes from the running application object we already hold
           -- — no accessibility call, so it costs nothing. It is what
           -- hs.image.imageFromAppBundle needs to draw the app's icon.
           local okb, bid = pcall(function() return appObj:bundleID() end)
           local doc = M.docApps[app] and docOf(w) or nil          -- editors only
-          -- D67: what project does THIS window belong to? Counted per window,
-          -- Finder included, so a Desktop with no session can be named by the
-          -- projects it holds and ranked by how many windows each has.
+          -- Which project does THIS window belong to? Its open document and
+          -- nothing else (D75). Counted per window, so a Desktop with no session
+          -- can be ranked by how many windows each project has on it.
           local proj = projectOfWindow(app, title, doc)
           if proj then projHits[#projHits + 1] = proj end
           if not M.ignoreApps[app] then
-            ctx[#ctx + 1] = app
             funcs[#funcs + 1] = { win = w, app = app, title = title,
                                   bundle = (okb and bid) or nil, doc = doc }
           elseif isTrailingIconApp(app) then
@@ -1479,7 +1417,7 @@ local function readSpaceFrom(byId, sid, byCg)
       end
     end
   end
-  return funcs, table.concat(ctx, " "), claudeCwd, extras, ghosts, projHits
+  return funcs, claudeCwd, extras, ghosts, projHits
 end
 
 -- The distinct apps in a window list, in the order they were read, as
@@ -1535,9 +1473,9 @@ local function buildIconList(funcs, extras, ghosts, kind)
 end
 
 local function labelSpace(byId, sid, byCg)
-  local funcs, ctx, claudeCwd, extras, ghosts, projHits = readSpaceFrom(byId, sid, byCg)
+  local funcs, claudeCwd, extras, ghosts, projHits = readSpaceFrom(byId, sid, byCg)
   if not funcs then return end   -- unreadable this time; better a stale name than "—"
-  local label, kind, projs = detectLabel(funcs, ctx, claudeCwd, projHits)
+  local label, kind, projs = detectLabel(funcs, claudeCwd, projHits)
   labelCache[sid]   = label
   spaceProjects[sid] = projs     -- D67: drawn orange when no session runs here
   -- Every Desktop now gets an icon row. On one whose label names APPS (a bucket
@@ -1785,6 +1723,7 @@ local function screenEntries(screen)
           sid = sid, wids = g.wids, project = g.project,
           dots = dots, icons = ic, prefix = head, suffix = suffix,
           here = here and gi == 1,           -- the caret belongs to the block
+          nameColor = M.sessionColor,        -- D75: only a live session is coloured
           text = text,
         }
       end
@@ -1819,9 +1758,7 @@ local function screenEntries(screen)
       entries[#entries + 1] = {
         sid = sid, dots = dots, icons = icons, prefix = prefix, suffix = suffix,
         here = here,                         -- draws the caret + number in magenta
-        -- Orange only when the name IS the projects. A ⌘⌃⌥N Desktop name is
-        -- your word for the Desktop, not a claim about what is on it.
-        nameColor = (shown and not overrides[sid]) and M.projectColor or nil,
+        -- White, like every other Desktop that is not running anything (D75).
         text = text,                         -- plain form, used for sizing
       }
     end

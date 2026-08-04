@@ -619,17 +619,21 @@ Clicking one of those lines raises that project's terminal window. Where a proje
 several sessions there, clicking again takes the next one. ⌘⌃⌥N on such a line renames the
 **project**, and it then reads that way everywhere it appears.
 
-**A Desktop with no session is named after the projects its windows belong to, in teal.**
+**A Desktop with no session is named after the projects whose documents are open on it**,
+in plain white.
 
 That means *"still set up for this — come back and restart it"*: you exited claude but left
-the windows open, and tomorrow this is how you find your way back. Because it claims less,
-its evidence is looser than the session rule's — an open document under a repo, a **Finder
-window sitting in the repo**, or a repo name in a window title. Windows are counted, and the
-**two** projects with the most windows are shown, joined with ` / `. Such a line carries
-**no dots at all**: there is no session on it, and a dot would say there was.
+the documents open, and tomorrow this is how you find your way back. **An open document is
+the only evidence.** A Finder window parked in the repo does not count — moving Finder from
+one project to another is a keystroke — and neither does a repo name appearing in some
+window's title, which usually means you were *talking* about it. Windows are counted, and
+the **two** projects with the most are shown, joined with ` / `. Such a line carries **no
+dots at all**: there is no session on it, and a dot would say there was.
 
-**Failing both**, in order: a repo name appearing anywhere in the Desktop's window titles,
-then loose token overlap, then **the apps themselves** — shown as their
+Only the apps in `M.docApps` report an open document, so that list is exactly the set that
+can name a Desktop this way.
+
+**Failing both**, it is named after **the apps themselves** — shown as their
 **icons** ([App icons](#app-icons)). The words behind that row, which is what you see with
 icons turned off, are: one app → its name; several sharing a subject → that subject
 (`Communication`); several subjects → `Utility`.
@@ -681,7 +685,6 @@ need changing:
   hint only while running claude. Add your terminal if it isn't listed.
 - `M.docApps` — apps asked for their open file's path. **Keep slow apps
   (Electron/Office/Java) out** — asking them can stall for minutes.
-- `M.noRepoHintApps` — apps whose titles never suggest a repo: browsers, chat apps, Finder.
 - `M.categories` / `M.categoryPatterns` — app → subject mappings.
 - `M.appLabels` — display name for a Desktop holding a **single** app
   (`Claude` → `Claude Chat/Cowork`).

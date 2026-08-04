@@ -941,3 +941,46 @@ change tense to stand alone.
   registers as local HID input**, so `HIDIdleTime` would be low precisely when the user is
   driving the iMac from home — suppressing the alert in the case it was built for. A
   per-machine config file is predictable; an inferred one is not.
+
+### D75. Only a live session is coloured, and only an open document names a project
+- **Decision:** two changes, made together on 2026-08-04 after seeing D67/D74 in use.
+  1. **The colour moves to the session lines.** A Desktop named after a live claude session
+     is drawn in teal (`M.sessionColor`); **everything else on the panel is white** — a
+     Desktop named after a project whose document is open on it, an app, a bucket like
+     `Utility`. `M.projectColor` is gone.
+  2. **A project names a Desktop only when one of its documents is open there.** A Finder
+     window parked in the repo no longer counts, a repo name appearing in a window title no
+     longer counts, and the loose token-overlap match below it is deleted.
+- **Why the colour swapped:** with the project lines coloured and the session lines white,
+  the panel emphasised the Desktops where **nothing was running**. Reversing it makes the
+  live sessions the thing the eye lands on, which is what the panel is for. Peter's words:
+  "this makes the running sessions more special".
+- **Why documents only:** *"Changing from one project to another in Finder is trivial and
+  there is no need to highlight these windows."* A Finder window says where you were
+  **browsing**; a mail subject or a Slack channel says what you were **talking about**. A
+  document open from the project is the one artefact that says work is set up here.
+- **How wide the removed surface was**, measured against the config on 2026-08-04 — this is
+  why it mattered rather than being a tidy-up:
+
+  | Path | What could name a Desktop |
+  |---|---|
+  | open document under a repo root | the 18 apps in `M.docApps` — **kept** |
+  | Finder folder name | Finder — **removed** |
+  | repo name inside a window title | **every app except** Claude, ChatGPT, six browsers, Finder and terminals — so Mail, Slack, OneNote, MATLAB, Messages, Stickies… — **removed** |
+  | loose token overlap | the same set, looser still — **removed** |
+
+- **What went with it:** `M.noRepoHintApps` and the `ctx` machinery in `readSpaceFrom` that
+  built the Desktop's hint text in three tiers. Both existed only to feed the two deleted
+  rules. **Leaving them would have been worse than deleting them**: a future session would
+  tune a list that no longer connects to anything.
+- **Supersedes:** **D8** and **D9**, which decided *which* titles may hint a repo, and the
+  Finder half of **D67**, which Peter had accepted on 2026-08-04 and reversed the same day
+  once he saw it work. **D7 is effectively restored** — it removed Finder from the repo hint
+  in the first place, on a measurement from 2026-07-28. D5's `docApps` allowlist is now
+  load-bearing in a second way: it is exactly the set of apps that can name a Desktop.
+- **Live tension:** the evidence is *any* document under a repo root, not only a `.md`. A
+  repo PDF open in Preview, or a spreadsheet in Excel, names the Desktop exactly as
+  `CLAUDE.md` does. Peter asked for "md file"; this is the looser reading, and narrowing it
+  is one condition in `projectOfWindow`.
+- **Where:** `M.sessionColor`, `projectOfWindow`, `detectLabel`, `readSpaceFrom`,
+  `screenEntries` — `v52`.

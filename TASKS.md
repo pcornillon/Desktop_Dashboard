@@ -247,3 +247,25 @@ it claims.
 orange this task was specified with — see **D74**. Orange collided with the amber status and
 stale-hint lines beneath the list.
 
+
+## Task #7 — Colour the sessions, not the projects; document evidence only (revises #5)
+
+**Status:** done (2026-08-04)
+
+Two changes asked for after living with `v51`, recorded as **D75**.
+
+1. **Teal moves to the session lines**; a Desktop named after a project whose document is
+   open there is white, like everything else that is not running. The panel now emphasises
+   what is live rather than what is dormant.
+2. **Only an open document under a repo root names a project.** Finder parked in the repo,
+   a repo name spotted in a window title, and the token-overlap fallback are all gone —
+   with `M.noRepoHintApps` and the `ctx` hint machinery that existed only to feed them.
+
+**Verified by rendering the entry list:** the five Desktops with sessions draw teal with
+their dots; the five named by an open document draw white with none; the Desktops that used
+to be named by a title guess now show their icon rows instead. `v51` → **`v52`**, console
+clean.
+
+**Open, and one condition away:** the evidence is any document under a repo root, not only
+`.md`. A repo PDF in Preview or a spreadsheet in Excel names a Desktop exactly as
+`CLAUDE.md` does — see D75's live tension.

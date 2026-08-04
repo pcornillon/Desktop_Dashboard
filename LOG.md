@@ -99,3 +99,14 @@ invented index is worse than a short one.
     direct `hs.task.new` routed through `runTask` (D65). → **v51**; both feature sets verified
     live in one build. **Task #1 closed by the merge**: the hook is now byte-identical to
     the copy `settings.json` runs
+- ★ **P9** `1231_satdat1` · 2026-08-04 15:15 EDT · reverse the colours, and stop letting
+  Finder or a window title name a project
+  → **v52**, **D75**, Task **#7**. Teal moves to the **session** lines and everything else
+    goes white, so the panel emphasises what is running. **Only an open document under a
+    repo root names a project** — Finder, the repo-name-in-a-title rule and the
+    token-overlap fallback are all deleted, and `M.noRepoHintApps` plus the `ctx` hint
+    machinery went with them, since they existed only to feed the deleted rules. Answered
+    his question first with the measured surface: the title rule admitted **every app except
+    Claude, ChatGPT, six browsers, Finder and terminals** — Mail, Slack, OneNote, MATLAB,
+    Messages. Verified by rendering: five Desktops teal with dots, five white from documents,
+    the title-guessed ones now showing icons

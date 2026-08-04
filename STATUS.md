@@ -1,16 +1,15 @@
 # STATUS.md — Desktop Dashboard
 
 Living snapshot of where this project stands. Rewritten, not appended.
-Last updated: **2026-08-04 15:00 EDT** (`satdat1`).
+Last updated: **2026-08-04 15:25 EDT** (`satdat1`).
 
 ---
 
 ## State
 
-- **The tool is at `v51` and in daily use**, which is the **merge of two machines'
-  parallel work**: `M.version` reads
-  `"v51 (merge: session-named Desktops, legend buttons, remote alerts, 2026-08-04)"`.
-  One file.
+- **The tool is at `v52` and in daily use.** `M.version` reads
+  `"v52 (only a live session is coloured; only a document names a project, 2026-08-04)"`.
+  `v51` before it was the **merge of two machines' parallel work**. One file.
 - **The last functional change was today**, and it was a repair. Every dot on the panel had
   gone dead: `hs.task` deadlocks on more than ~512 bytes of output unless a streaming
   callback drains the pipe, which took out four of the six subprocess reads at once, and
@@ -22,10 +21,11 @@ Last updated: **2026-08-04 15:00 EDT** (`satdat1`).
   instead of a pipe (**D66**, Task **#6**). Verified: 62 consecutive samples of the live
   session list, no truncation, against 8 truncated in 56 before. The measurements are in D65
   and D66.
-- **D67 is built** (Task #5, `v49`): a Desktop is named by the projects with live
-  sessions on it, one line each, joined to their Desktops by **window** rather than by
-  name; a Desktop with none is named after the projects its windows belong to, in teal,
-  and carries no dots.
+- **A Desktop is named by the projects with live sessions on it** (Task #5, **D67**), one
+  line each, joined to their Desktops by **window** rather than by name — and those lines
+  are the only coloured ones on the panel (**D75**, teal). A Desktop with no session is
+  named after the projects whose **documents** are open on it, in white, with no dots;
+  nothing reads a window's title any more (**D75**, Task #7).
 - **The two machines are merged.** The laptop's `73803a4` (clickable legend words,
   cross-machine alerts) and this machine's `a6a8c5b` (v47–v50) diverged from `6442953` and
   are now one history. Only three hunks conflicted — the version line, `M.stop`, and one
@@ -68,12 +68,13 @@ Everything in this section was run or read, not recalled.
 - Working tree clean and level with `origin/main` before the migration began
   (`6442953`).
 
-## Decisions taken (D1–D74)
+## Decisions taken (D1–D75)
 
-D1–D64 were lifted from `CLAUDE.md` on 2026-08-03. **Ten are new on 2026-08-04.** Written
+D1–D64 were lifted from `CLAUDE.md` on 2026-08-03. **Eleven are new on 2026-08-04.** Written
 here: every `hs.task` carries a timeout (**D65**), a subprocess writes to a file rather than
 a pipe (**D66**), a Desktop is named by its live sessions and failing that by the projects
-its windows belong to (**D67**), and that name is teal (**D74**). Lifted out of the
+its windows belong to (**D67**), that colour lands on the session lines instead (**D74**,
+**D75**), and only a document names a project (**D75**). Lifted out of the
 laptop's `CLAUDE.md` prose by the merge, measurements intact: the clickable legend
 (**D68**–**D71**) and the cross-machine alert (**D72**, **D73**).
 
@@ -93,7 +94,8 @@ Rendering: D40–D59.
 Lifecycle: D60–D62.
 Repo: `PRE_CONVERSION/` (D63), the code stays at the top level (D64).
 Subprocesses: time out every read (D65), capture to a file (D66).
-Naming: sessions first, then the projects a Desktop's windows belong to (D67), in teal (D74).
+Naming: sessions first and in teal (D67, D74, D75), then the projects whose documents are
+open there, in white (D75).
 Remote work: legend words are buttons (D68–D71), the hook raises the alert (D72–D73).
 
 ## Active thread — resume here
