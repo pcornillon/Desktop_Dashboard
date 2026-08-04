@@ -4,7 +4,7 @@
 git state.
 **Produces:** `desktop_dashboard.lua` — a single-file tool loaded from
 `~/.hammerspoon/init.lua` — plus `claude-dashboard-state.sh`, its Claude Code hook.
-**State:** v46, working and in daily use; see `STATUS.md`.
+**State:** v50, working and in daily use; see `STATUS.md`.
 
 Context for AI coding sessions on this repo. Read this before changing
 `desktop_dashboard.lua`. `README.md` is the user-facing install/usage doc; **`DECISIONS.md`
@@ -18,7 +18,7 @@ design ruling lives there as a numbered `D##`.
 | `CLAUDE.md` (this file) | what the project is, the architecture, the layout |
 | `STATUS.md` | where things stand right now, ending in the **active thread** |
 | `LOG.md` | one line per prompt — scan this to see what has been done |
-| `DECISIONS.md` | **D1–D64** — every design ruling and the measurement behind it |
+| `DECISIONS.md` | **D1–D67** — every design ruling and the measurement behind it |
 | `TASKS.md` | the work list: numbered tasks with `Status:` lines |
 
 ## What this project is
@@ -41,7 +41,7 @@ The module returns a table `M` with a `CONFIG` block at the top and `M.start()` 
 ```
 CLAUDE.md               this file — project context, architecture, layout
 STATUS.md               where things stand + active thread
-DECISIONS.md            D1–D64 — every design ruling, with its measurement
+DECISIONS.md            D1–D67 — every design ruling, with its measurement
 TASKS.md                numbered work list with Status: lines
 LOG.md                  append-only one-line-per-prompt index
 README.md               human-facing overview, controls, config, limitations
@@ -95,41 +95,62 @@ manuscript here", which is information.
 - `M.version` is printed on load — **bump it on every change** so a stale file is obvious
   (**D62**).
 
-## Detection order (repo first, then apps)
+## What names a Desktop (D67)
 
-`detectLabel(funcs, ctx)`, first match wins:
+**Sessions first, and by window — not by name.** Each claude session is tied to the Desktop
+its terminal window is on, via `hs.spaces.windowSpaces` (2.9 ms for 13 windows, and it
+answers for Spaces that are not active). `sessionGroupsFor(sid)` then collapses those
+sessions **one group per project**, so a Desktop running three sessions in two repos draws
+two lines under one `Desktop N`, and a Desktop running three in one repo draws one.
 
-1. **Repo by document path** — for editor windows in `docApps`, read the open file's path;
-   if it is under a repo root, the repo folder name is the label. The path itself names the
-   repo, **so the file is never opened or read.** Only `docApps` is asked (**D5**);
-   comparison is case-insensitive (**D12**).
-2. *(rule 1.5)* **A claude session's working directory** — a fact about the Desktop, so it
-   outranks any repo name found in prose (**D13**).
-3. **Repo by title hint** — a repo name appearing in a window title, but only from apps
-   whose titles name a *location* rather than a *subject* (**D8**).
-4. **Repo by token overlap** — looser fallback.
-5. *(rule 3.5)* **The claude session's cwd**, repo or not, when nothing above matched
-   (**D14**).
-6. **App / subject** — one app → that app's own name; two or more sharing a subject → the
+A Desktop with at least one session shows **only** those lines. Its dots are that group's:
+yellow if any of its sessions is computing, red if the hooks say the repo wants you, green
+if one finished unseen. ⌘⌃⌥N there renames the **project**, globally, and the per-Desktop
+override is not consulted.
+
+**Otherwise `detectLabel(funcs, ctx, claudeCwd, projHits)` decides**, and the first rule is
+a count rather than a match:
+
+1. **The projects this Desktop's windows belong to**, ranked by how many windows each has,
+   at most `M.maxProjects` (2), joined with ` / ` and drawn in **teal**. Attribution is
+   per window, by `projectOfWindow`: an open document under a repo root (`docApps` only,
+   **D5**, case-insensitive **D12**), a **Finder window whose folder IS a repo**, or a repo
+   name inside the title of an app that may hint (**D8**). Terminals contribute through the
+   session path or not at all (**D7**).
+2. *(rule 1.5)* **A claude session's working directory**, when no window claimed a project.
+3. **Repo by title hint** across the Desktop's whole text — a fallback below the per-window
+   pass, so it can still catch a project no single window claimed (**D13**).
+4. **Repo by token overlap** — looser still.
+5. **App / subject** — one app → that app's own name; two or more sharing a subject → the
    subject; two or more subjects → `Utility` (**D15**). With icons on, this row is drawn as
    icons rather than words (**D40**).
+
+**Teal means "still set up for this project", not "running".** You exited claude and left
+the windows; the colour is how you find your way back tomorrow. That is why its evidence is
+looser than the session rule's — and why **a Desktop with no session carries no dots at
+all**, since a dot there would read as a live session.
 
 `funcs` excludes Finder/Terminal — they do not decide the subject (**D6**). `ctx` collects
 titles that may suggest a repo, in three tiers: `noRepoHintApps` never contribute (browsers,
 chat apps, Finder), `claudeOnlyHintApps` contribute only when the title looks like a claude
 session (terminals, **D7**), and everything else contributes normally.
 
+**Two limits worth knowing before you debug a missing line.** The session poll reads
+**Terminal only**, so a session in iTerm, Ghostty or kitty produces no line at all. And a
+minimized session window reports no Space, so it gets no Desktop line — it is still in the
+`T#` list, which is keyed by window.
+
 ## Where the design rulings live
 
-They are **not** in this file. `DECISIONS.md` holds all 64, with the measurements intact —
+They are **not** in this file. `DECISIONS.md` holds all 67, with the measurements intact —
 the ~40 ms `hs.window.get` cost, the 750-sample dot study, the Menlo 13 glyph widths, the
 observation dates. The ones most likely to be violated by accident:
 
 | If you are touching… | Read first |
 |---|---|
 | the read path | **D4** (one snapshot per read), **D5** (`docApps` allowlist), **D3** (active Space only) |
-| label detection | **D7**–**D9**, **D13** — four separate false positives from matching repo names in free text |
-| the claude dot | **D17**–**D19** — what the terminal title can and cannot tell you |
+| label detection | **D67** first — it rewrote what names a Desktop; then **D7**–**D9**, **D13**, four false positives from matching repo names in free text |
+| the claude dot | **D67** (a session belongs to the Desktop its WINDOW is on), then **D17**–**D19** — what the terminal title can and cannot tell you |
 | the ⌘⌃⌥g pull | **D30**–**D36** — the only code here that writes to a repository |
 | drawing / icons | **D40**–**D59** |
 
@@ -146,6 +167,17 @@ These are platform facts rather than choices, which is why they are here and not
   raised GC pressure enough to collect the pending step mid-walk. `scanTimer` holds it now.
   **Symptom to recognise:** `M.status` frozen part-way, `scanningAll` stuck true, console
   completely clean.
+- **`hs.task` deadlocks on more than ~512 bytes of output** unless you give it a streaming
+  callback. Hammerspoon does not drain the child's stdout until the child exits, and a
+  macOS pipe starts with a 512-byte buffer, so the child blocks for ever inside `exit()`
+  and its termination callback never fires — taking the in-flight guard above it with it.
+  It is worse than that: `hs.task` also **splits its output between its streaming and
+  termination callbacks**, and **drops any chunk that ends inside a multi-byte character** —
+  routine here, where titles carry `—`, `✳`, `⠂` and `×`. **Never call `hs.task.new`
+  directly; use `runTask`**, which captures to a file and times out (**D65**, **D66**, where
+  the measurements are). **Symptom to recognise:** a dot column that stops
+  updating and never recovers, an `osascript` or `sh` child of Hammerspoon with an
+  implausible elapsed time in `ps`, and a console that says nothing at all.
 - **`hs.spaces` queries throw rather than return nil.** `windowsForSpace`,
   `spacesForScreen` and `activeSpaceOnScreen` reach through the Dock's accessibility
   element and raise when that lookup transiently fails ("Unable to fetch

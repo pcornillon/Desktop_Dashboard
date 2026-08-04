@@ -22,3 +22,69 @@ invented index is worse than a short one.
     `LOG.md` written fresh. **Found by `diff`, not assumed:** this repo's
     `claude-dashboard-state.sh` is ~90 lines behind the copy `~/.claude/settings.json`
     actually runs → Task #1, blocked on Peter
+
+## Desktop labels vs. claude sessions
+
+- ★ **P1** `1231_satdat1` · 2026-08-04 12:31 EDT · an open `CLAUDE.md` from another project
+  steals a Desktop's name from its live claude session; proposed rule — one line per session
+  → diagnosed: `detectLabel` rule 1 outranks rule 1.5, and the claude dot is joined **by
+    name** rather than by window; the gray dot is `withPlaceholders`, not a state. Measured:
+    Terminal's AppleScript window id **is** the `hs.spaces` id, and `hs.spaces.windowSpaces`
+    places 13 windows in **2.9 ms**, inactive Spaces included — so the join is cheap and
+    live. Five asks back to Peter; no code changed
+- ★ **P2** `1231_satdat1` · 2026-08-04 12:36 EDT · no yellow dot although a session is
+  working, and ⌘⌃⌥s doesn't help
+  → **a second, unrelated fault, found by `ps` not by reasoning**: the claude-title poll
+    was deadlocked — an `osascript` child of Hammerspoon hung **5 h 21 min**, blocked in
+    `exit()`/`fflush` writing to an undrained pipe. `refreshClaudeStates` guards with
+    `if claudeTask then return end` and has **no timeout**, so every poll since ~07:10 EDT
+    did nothing, `M.scanAll` included. Killed the child; the next poll hung identically.
+    Narrowed by four control tests to the **Hammerspoon→app AppleEvent path**; TCC and
+    descriptor exhaustion excluded. Loaded module is **v41**, repo is v46 → proposed a
+    watchdog task; nothing written yet
+- ★ **P3** `1231_satdat1` · 2026-08-04 12:57 EDT · restarted Hammerspoon, panel still says
+  "(no claude sessions found)" — screenshot shows **no dots at all**
+  → **root cause, and P2's AppleEvent conclusion is superseded**: `hs.task` deadlocks when a
+    child writes more than **~512 bytes** to stdout — Hammerspoon does not drain the pipe
+    until exit and a macOS pipe starts at 512 B. Measured: 100/300/500 B return,
+    700/900/1100/1500 B hang for ever. The title script emits ~900 B at 13 Terminal windows;
+    four of the six `hs.task` sites normally exceed it, so the **whole async layer** is down,
+    dots included. A restart cannot help. **Fix verified:** a streaming callback carried all
+    2001 B of a child that otherwise hangs. Hammerspoon 1.1.1 (6936), macOS 14.1.1.
+    Restarting also answered the version question — the panel now loads **v46** by itself
+- ★ **P4** `1231_satdat1` · 2026-08-04 13:10 EDT · "Ask 1. yes. Ask 2. yes." — implement the
+  fix and log it
+  → **v47**: one `runTask` helper (streaming accumulator + watchdog + `M.taskTimeout` 20 s)
+    replacing all five output-capturing `hs.task.new` calls; `ghWatchdog`/`pullWatchdog`
+    deleted, `M.stop` cancels live watchdogs, the pull's pre-check gains a timeout it never
+    had, and a double-report in the pull goes away. **Verified after reload:** v47 loaded,
+    no hung child, `claudeStates` = 5 (`desktop_dashboard: working`), `gitStates` = 15 —
+    both empty before. → **D65**, Task **#4** `done`
+- ★ **P5** `1231_satdat1` · 2026-08-04 13:34 EDT · answers to the three design asks: no doc
+  line beside a session, broader evidence capped at two projects, one line per **project**
+  rather than per session
+  → Task **#5** written with the full spec, `blocked` on two points: whether a project
+    rename is global or per-Desktop, and whether a lone Finder window may name a Desktop —
+    the latter reverses **D7**, whose false positive was measured 2026-07-28. `D66` drafted
+    and quoted but **not** written until those two are answered
+- ★ **P6** `1231_satdat1` · 2026-08-04 13:43 EDT · both asks accepted; three fault reports
+  with screenshots — the session list toggles between two views every ~10 s
+  → two of the three were the **unfixed** naming rule (Task #5), not new. The third was
+    **mine, from v47**: `hs.task` **splits its output between its two callbacks** (measured:
+    511 streamed + 403 at termination) and **drops any chunk ending inside a multi-byte
+    character** (511 bytes lost outright) — and v47's helper preferred the streamed half.
+    Three earlier hypotheses were each killed by measurement before this one. Fixed by
+    capturing to a **file** instead of a pipe → **v48**, **D66**, Task **#6** (revises #4).
+    Verified: 62 consecutive samples, no truncation, against 8 of 56 before. **D67** written
+    for the naming rule now that both its open points are settled
+- ★ **P7** `1231_satdat1` · 2026-08-04 14:15 EDT · "Ask 1. Yes." — build D67
+  → **v49**, Task **#5** `done`. A session is now tied to its Desktop by its **window**
+    (`hs.spaces.windowSpaces`), collapsed **one line per project**; a Desktop with no session
+    is named after the projects its windows belong to — Finder counted, top two by window
+    count — drawn **orange** and carrying **no dots**. `claudeStateFor`, the string match at
+    the root of the whole fault report, is **deleted**. Click-to-cycle and a global,
+    project-scoped ⌘⌃⌥N added. **Verified by calling `screenEntries` directly:** Desktop 13's
+    two AGU sessions plus one MODIS_L2 draw as **two lines** under one Desktop, exactly the
+    case Peter reported. Click and ⌘⌃⌥N need a mouse and are untested. **Reported:** a
+    ⌘⌃⌥N Desktop name is ignored on a Desktop that has a session — `3-way_analysis` reverts
+    to the long repo name until re-applied as a *project* name

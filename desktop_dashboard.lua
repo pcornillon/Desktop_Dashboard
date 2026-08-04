@@ -65,7 +65,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v46 (name both ways to read the unread Desktops, 2026-08-01)"
+M.version = "v50 (Desktops named by their live sessions; projects in teal, 2026-08-04)"
 
 -- ============================ CONFIG ============================
 
@@ -151,6 +151,11 @@ M.claudeDotChar    = "●"
 M.showDotPlaceholders  = true
 M.dotPlaceholderColor  = { white = 0.42, alpha = 1 }
 M.claudeDotSeconds = 3           -- how often titles are read (async, never blocks)
+-- Seconds before a background read that has not come back is killed and its
+-- in-flight guard released. Applies to the two continuous polls (claude titles,
+-- git status); ⌘⌃⌥g and its pull have their own, longer limits below. See D65:
+-- an unbounded read pinned both dots for a whole morning.
+M.taskTimeout      = 20
 M.claudeStateDir   = os.getenv("HOME") .. "/.hammerspoon/claude_state"
 M.claudeHookMaxAgeHours = 12     -- ignore state files older than this
 M.claudeDotColors  = {
@@ -363,6 +368,20 @@ M.highlightActive = true
 M.activeMarker    = "▸  "
 M.inactiveMarker  = "   "
 M.activeColor     = { red = 1.00, green = 0.45, blue = 0.90, alpha = 1 }
+-- D67. The colour of a Desktop named after the projects its windows belong to
+-- when NO claude session is running there — "still set up for this, come back
+-- and restart it".
+--
+-- TEAL, and every warmer or bluer choice is already taken (D74). Yellow is the
+-- working dot. Orange was tried and rejected on sight: the scan status and the
+-- stale hint under the list are amber, so a third warm tone in the same panel
+-- read as one family. Magenta is the Desktop you are standing on. BLUE is the
+-- one that looks right and is worst — the legend's clickable words are blue and
+-- the legend says so in words, and the section headings are within a hair of the
+-- same blue. Teal is cool, unclaimed, and legible on the dark panel, and reading
+-- as dormant beside the warm "live" cues is exactly the meaning wanted.
+M.projectColor    = { red = 0.30, green = 0.80, blue = 0.75, alpha = 1 }
+M.maxProjects     = 2           -- how many projects such a Desktop may name
 
 M.corner          = "topleft"
 M.margin          = 14
@@ -428,6 +447,16 @@ local reposLoadedAt = 0        -- when loadRepos() last ran (see refreshRepos)
 local claudeStates = {}        -- repo name (lowercased) -> "working" | "idle"
 local claudeHooks  = {}        -- repo name -> "working" | "waiting" | "done" (from hooks)
 local sessions     = {}        -- one entry per claude terminal window, ordered
+-- D67. A session belongs to the Desktop its WINDOW is on, which is a fact —
+-- not to whichever Desktop happens to carry its directory name, which was a
+-- guess and a wrong one. hs.spaces.windowSpaces answers for inactive Spaces
+-- too, so this is live for every Desktop, not only the one you are standing on.
+local sessionsBySpace = {}     -- spaceID -> the sessions whose windows are on it
+local spaceProjects   = {}     -- spaceID -> ranked projects, for a Desktop with none
+local projectNames    = {}     -- project (lowercased) -> the name ⌘⌃⌥N gave it
+local cycleNext       = {}     -- "<sid>\0<project>" -> which window a click raises next
+local cycleTargets    = {}     -- click id -> that line's windows; rebuilt every draw
+local frontSession    = nil    -- Terminal's front window id, when it is a session
 local sessionPrev  = {}        -- Terminal window id -> previous state
 local sessionDone  = {}        -- Terminal window id -> finished, unacknowledged
 local claudePrev   = {}        -- previous sample, for spotting working -> idle
@@ -435,9 +464,9 @@ local claudeDone   = {}        -- repo name -> true: finished, not yet acknowled
 local claudeStatesAt, claudeTask, claudeTimer = 0, nil, nil
 local gitStates    = {}        -- repo name (lowercased) -> "changed" | "clean"
 local gitStatesAt, gitTask, gitTimer = 0, nil, nil
-local ghTask, ghWatchdog, ghWebview     -- ⌘⌃⌥g: in-flight query, its kill timer, popup
+local ghTask, ghWebview                 -- ⌘⌃⌥g: in-flight query and its popup
 local ghUserContent                     -- JS→Lua bridge for the popup, made once
-local pullTask, pullWatchdog, pullRescan  -- the one operation here that writes to a repo
+local pullTask, pullRescan              -- the one operation here that writes to a repo
 local pendingPull                         -- a pull waiting on its confirmation click
 local refreshTimer, autosaveTimer, spaceWatcher, screenWatcher, winWatcher, debounceTimer
 -- Holds the ⌘⌃⌥S walk's pending step. MUST be a live reference: an hs.timer
@@ -476,6 +505,121 @@ local function isTrailingIconApp(app)
 end
 local function loadState() local t = hs.json.read(stateFile); return (type(t) == "table") and t or nil end
 local function saveState(t) pcall(hs.json.write, t, stateFile, true, true) end
+
+-- ---- running a subprocess (every hs.task in this file goes through here) ---
+--
+-- THE CHILD'S OUTPUT NEVER TOUCHES A PIPE. Every command is wrapped in a shell
+-- that redirects stdout and stderr to temporary FILES, which this reads once the
+-- child has exited. Three separate measured failures say it has to work this
+-- way; the first two are D65, the third is D66.
+--
+-- 1. WITHOUT A STREAMING CALLBACK, hs.task DEADLOCKS ABOVE ~512 BYTES.
+--    Hammerspoon does not drain stdout until the child exits and a macOS pipe
+--    starts with a 512-byte buffer, so the child blocks for ever inside exit().
+--    Measured 2026-08-04 (Hammerspoon 1.1.1 build 6936, macOS 14.1.1):
+--    100/300/500 bytes came back; 700/900/1100/1500 never did.
+-- 2. THE OUTPUT IS SPLIT BETWEEN THE TWO CALLBACKS. A 914-byte child delivered
+--    511 bytes to the streaming callback and the remaining 403 to the
+--    termination callback. Either one alone is a truncated read.
+-- 3. A CHUNK THAT ENDS INSIDE A MULTI-BYTE CHARACTER IS DROPPED ENTIRELY.
+--    The same child, with an em dash straddling the 512-byte boundary, streamed
+--    ZERO bytes — the whole 511-byte chunk vanished — while the termination
+--    callback still got its 403. Nothing at the Lua level can recover it, and
+--    the titles this panel reads are full of `—`, `✳`, `⠂`, `×` and `◂`, so the
+--    boundary lands inside a character often. This is what made the session
+--    list flicker between a complete and a truncated view every few seconds.
+--
+-- A file has none of these properties: no buffer to fill, no chunking, no
+-- text conversion, and it is complete the moment the child exits. The streaming
+-- callback is kept anyway, as a drain of last resort for anything that reaches
+-- the pipe despite the redirect, and its bytes are APPENDED to the file's —
+-- never chosen between, which was the bug in the first version of this helper.
+--
+-- The timeout is the other half. A read that never returns must not pin its
+-- guard silently: a panel with no dots is indistinguishable from "nothing is
+-- running", which is precisely how this cost a morning. done(nil, "", "", true)
+-- says "timed out" so the caller can say so out loud.
+--
+-- Returns the task WITHOUT starting it, so the caller can store its in-flight
+-- reference before the first callback can possibly fire — the ordering the old
+-- hand-rolled calls relied on. Returns nil if the task could not be created.
+local stallAlerted = {}
+
+local function noteTaskStall(what, timeout)
+  hs.printf("[desktop_dashboard] %s timed out after %ss and was killed", what, tostring(timeout))
+  if not stallAlerted[what] then          -- once per stall, not once per tick
+    stallAlerted[what] = true
+    pcall(hs.alert.show, "Dashboard: " .. what .. " timed out")
+  end
+end
+
+local function noteTaskOK(what) stallAlerted[what] = nil end
+
+-- Pending watchdogs are held here as well as by their closures. A doAfter with
+-- nothing referencing it can be collected before it fires — the same trap the
+-- ⌘⌃⌥S walk fell into (see the gotchas in CLAUDE.md).
+local liveWatchdogs = {}
+
+-- Single-quote a string for safe embedding in the /bin/sh command below.
+local function shQuote(s) return "'" .. tostring(s):gsub("'", "'\\''") .. "'" end
+
+local captureDir = os.getenv("TMPDIR") or "/tmp"
+local captureSeq = 0
+
+local function readAndRemove(path)
+  local fh = io.open(path, "rb")
+  local text = ""
+  if fh then text = fh:read("a") or ""; fh:close() end
+  os.remove(path)
+  return text
+end
+
+local function runTask(bin, args, timeout, done)
+  local out, err, fired = {}, {}, false
+  local task, watchdog
+  captureSeq = captureSeq + 1
+  local stem = string.format("%s/desktop_dashboard.%d.%d", captureDir,
+    (hs.processInfo and hs.processInfo.processID) or 0, captureSeq)
+  local outFile, errFile = stem .. ".out", stem .. ".err"
+  -- exec replaces this shell, so the exit status reaching hs.task is the
+  -- command's own — which the pull depends on.
+  local cmd = { "exec >" .. shQuote(outFile) .. " 2>" .. shQuote(errFile), "exec " .. shQuote(bin) }
+  for _, a in ipairs(args or {}) do cmd[#cmd] = cmd[#cmd] .. " " .. shQuote(a) end
+  local function finish(code, so, se, timedOut)
+    if fired then return end            -- terminate() also fires the callback
+    fired = true
+    if watchdog then
+      watchdog:stop(); liveWatchdogs[watchdog] = nil; watchdog = nil
+    end
+    -- File first, then anything the pipe delivered: appended, never chosen
+    -- between. Both callbacks carry real bytes and picking one loses the rest.
+    local o = readAndRemove(outFile) .. table.concat(out) .. tostring(so or "")
+    local e = readAndRemove(errFile) .. table.concat(err) .. tostring(se or "")
+    done(code, o, e, timedOut or false)
+  end
+  local ok, t = pcall(hs.task.new, "/bin/sh",
+    function(code, so, se) finish(code, so, se, false) end,
+    function(_, so, se)
+      if so and so ~= "" then out[#out + 1] = so end
+      if se and se ~= "" then err[#err + 1] = se end
+      return true                        -- false stops the drain; see above
+    end,
+    { "-c", table.concat(cmd, "\n") })
+  if not (ok and t) then
+    os.remove(outFile); os.remove(errFile)
+    return nil
+  end
+  task = t
+  if timeout and timeout > 0 then
+    watchdog = hs.timer.doAfter(timeout, function()
+      liveWatchdogs[watchdog] = nil
+      pcall(function() if task:isRunning() then task:terminate() end end)
+      finish(nil, nil, nil, true)
+    end)
+    liveWatchdogs[watchdog] = true
+  end
+  return t
+end
 
 local function loadRepos()
   repos = {}
@@ -589,6 +733,73 @@ local function parseClaudeTitles(text)
   return byRepo, sessions, frontId
 end
 
+-- Which Desktop a window is on. Unlike hs.window.allWindows this answers for
+-- Spaces that are not active — measured 2026-08-04 at 2.9 ms for 13 windows,
+-- against 330 ms to sweep windowsForSpace over all 15 Spaces. Like every other
+-- hs.spaces call it THROWS rather than returning nil, so it is wrapped.
+local function safeWindowSpace(wid)
+  if not wid then return nil end
+  local ok, list = pcall(hs.spaces.windowSpaces, wid)
+  if ok and type(list) == "table" then return list[1] end
+  return nil
+end
+
+-- Tie each session to the Desktop its terminal window is on (D67). A window
+-- that reports no Space — minimized, mostly — gets no Desktop line; it is still
+-- in the T# list, which is keyed by window rather than by Space.
+local function mapSessionsToSpaces(list)
+  local bySpace = {}
+  for _, s in ipairs(list or {}) do
+    local sid = safeWindowSpace(s.wid)
+    s.sid = sid
+    if sid then
+      local t = bySpace[sid]
+      if not t then t = {}; bySpace[sid] = t end
+      t[#t + 1] = s
+    end
+  end
+  return bySpace
+end
+
+-- The sessions on one Desktop, collapsed to ONE GROUP PER PROJECT (D67): three
+-- sessions there, two in one repo and one in another, are two lines rather than
+-- three. Order follows window id, so the lines keep their places across polls.
+--
+-- The group's dot follows sessionEntries exactly: yellow if any of its sessions
+-- is computing, red if the hooks say that repo is waiting on you, green if one
+-- finished and you have not looked at it.
+local function sessionGroupsFor(sid)
+  local list = sessionsBySpace[sid]
+  if not (list and #list > 0) then return {} end
+  local byProject, order = {}, {}
+  for _, s in ipairs(list) do
+    local key = tostring(s.project or ""):lower()
+    if key ~= "" then
+      local g = byProject[key]
+      if not g then
+        g = { project = s.project, key = key, wids = {} }
+        byProject[key] = g; order[#order + 1] = g
+      end
+      g.wids[#g.wids + 1] = s.wid
+      if s.state == "working"  then g.working = true end
+      if sessionDone[s.wid]    then g.finished = true end
+    end
+  end
+  if M.showClaudeDot then
+    for _, g in ipairs(order) do
+      if g.working then g.state = "working"
+      elseif claudeHooks[g.key] == "waiting" then g.state = "waiting"
+      elseif g.finished then g.state = "done" end
+    end
+  end
+  return order
+end
+
+-- What ⌘⌃⌥N renamed this project to, or its own name.
+local function displayName(project)
+  return projectNames[tostring(project or ""):lower()] or project
+end
+
 -- Sessions mode's equivalent of visiting a Desktop: if you are actually looking
 -- at a session's window, its finished-and-unseen flag is cleared. Clicking the
 -- dashboard line used to be the only way, so going to the window directly — or
@@ -641,8 +852,11 @@ local function dotKey()
     keys[#keys + 1] = k .. "=" .. v .. (claudeDone[k] and "!" or "") .. "/" .. tostring(claudeHooks[k])
   end
   for _, s in ipairs(sessions) do
+    -- The Space is part of the key: moving a session's window to another
+    -- Desktop moves its LINE, and nothing else here would notice (D67).
     keys[#keys + 1] = "w" .. tostring(s.wid) .. "=" .. s.state ..
-                      (sessionDone[s.wid] and "!" or "") .. "/" .. tostring(s.summary)
+                      (sessionDone[s.wid] and "!" or "") .. "/" .. tostring(s.summary) ..
+                      "@" .. tostring(s.sid)
   end
   table.sort(keys)
   return table.concat(keys, ",")
@@ -693,8 +907,15 @@ local function acknowledgeSids(sids)
   if not M.showClaudeDot then return false end
   local changed = false
   for _, sid in ipairs(sids or {}) do
-    -- Same reason as claudeStateFor: the flag is keyed by repo, so a renamed
-    -- Desktop would never clear its own green dot.
+    -- The sessions actually ON this Desktop, by window (D67). Standing on a
+    -- Desktop is how you acknowledge its finished sessions, and before this the
+    -- flag was cleared by NAME — so looking at a Desktop cleared the green dot
+    -- of a same-named session running somewhere else, and left this one lit.
+    for _, s in ipairs(sessionsBySpace[sid] or {}) do
+      if sessionDone[s.wid] then sessionDone[s.wid] = nil; changed = true end
+      local key = tostring(s.project or ""):lower()
+      if key ~= "" and claudeDone[key] then claudeDone[key] = nil; changed = true end
+    end
     local label = labelCache[sid]
     if label then
       local key = tostring(label):lower()
@@ -715,11 +936,16 @@ local function refreshClaudeStates()
   -- Half the interval, so timer jitter can never make a tick skip itself.
   if now - claudeStatesAt < (M.claudeDotSeconds or 3) * 0.5 then return end
   claudeStatesAt = now
-  local ok, t = pcall(hs.task.new, "/usr/bin/osascript", function(_, stdout, _)
+  local t = runTask("/usr/bin/osascript", { "-e", CLAUDE_TITLE_SCRIPT }, M.taskTimeout,
+    function(_, stdout, _, timedOut)
     claudeTask = nil
+    if timedOut then noteTaskStall("claude session read", M.taskTimeout); return end
+    noteTaskOK("claude session read")
     local before = dotKey()
     local frontId
     claudeStates, sessions, frontId = parseClaudeTitles(stdout)
+    sessionsBySpace = mapSessionsToSpaces(sessions)   -- D67: window -> Desktop
+    frontSession = frontId
     claudeHooks  = readHookStates()
     noteTransitions(claudeStates)
     noteSessionTransitions(sessions)
@@ -729,14 +955,14 @@ local function refreshClaudeStates()
     -- Redraw only when a dot actually changed. draw() tears down and rebuilds
     -- every canvas, so repainting on an unchanged result is pure churn.
     if dotKey() ~= before then pcall(draw) end
-  end, { "-e", CLAUDE_TITLE_SCRIPT })
-  if ok and t then claudeTask = t; t:start() end
+  end)
+  if t then claudeTask = t; t:start() end
 end
 
 -- ---- git status dot (local/offline) ---------------------------------------
 
--- Single-quote a path for safe embedding in the /bin/sh script below.
-local function shQuote(s) return "'" .. tostring(s):gsub("'", "'\\''") .. "'" end
+-- `shQuote` (defined with runTask above) quotes the repo paths embedded in the
+-- /bin/sh script below.
 
 -- A stable fingerprint of the git dots, so we only redraw when one changes.
 local function gitDotKey()
@@ -780,8 +1006,11 @@ local function refreshGitStates()
   end
   if #parts == 0 then return end
   local script = string.format(GIT_LOCAL_SNIPPET, table.concat(parts, " "))
-  local ok, t = pcall(hs.task.new, "/bin/sh", function(_, stdout, _)
+  local t = runTask("/bin/sh", { "-c", script }, M.taskTimeout,
+    function(_, stdout, _, timedOut)
     gitTask = nil
+    if timedOut then noteTaskStall("git status read", M.taskTimeout); return end
+    noteTaskOK("git status read")
     local fresh = {}
     for line in tostring(stdout or ""):gmatch("[^\n]+") do
       local p, st = line:match("^(.*)\t(%S+)$")
@@ -793,8 +1022,8 @@ local function refreshGitStates()
     local before = gitDotKey()
     gitStates = fresh
     if gitDotKey() ~= before then pcall(draw) end
-  end, { "-c", script })
-  if ok and t then gitTask = t; t:start() end
+  end)
+  if t then gitTask = t; t:start() end
 end
 
 local function categorize(app)
@@ -822,6 +1051,60 @@ local function repoForPath(path)
   return nil
 end
 
+-- The project ONE window points at, or nil (D67). Per-window rather than per
+-- Desktop, because a Desktop with no session is now named by the projects its
+-- windows belong to, ranked by how many windows each has — which needs a count,
+-- not a first match.
+--
+-- Finder is asked here even though D7 removed it from the repo hint, and the
+-- reversal is deliberate: D7's objection was that a Finder window parked in a
+-- repo named the wrong SUBJECT for a Desktop whose work was MATLAB. This label
+-- does not claim to be the subject. It says "there are windows here belonging
+-- to this project" — which is exactly what a Finder window parked in it is.
+-- Only an exact match counts, since a Finder window's title is its folder's
+-- name: a window inside a subfolder names the subfolder and is ignored.
+local function projectOfWindow(app, title, doc)
+  local byDoc = repoForPath(doc)              -- editors in docApps only (D5)
+  if byDoc then return byDoc end
+  title = tostring(title or "")
+  if title == "" then return nil end
+  local nt = normalize(title)
+  if app == "Finder" then
+    for _, r in ipairs(repos) do
+      if r.norm == nt then return r.name end
+    end
+    return nil
+  end
+  -- A terminal contributes through the SESSION path or not at all (D7): a shell
+  -- is wherever you last cd'd, which is not evidence of anything.
+  if M.noRepoHintApps[app] or M.claudeOnlyHintApps[app] then return nil end
+  local best, bestLen = nil, 0
+  for _, r in ipairs(repos) do
+    if #r.norm >= 4 and nt:find(r.norm, 1, true) and #r.norm > bestLen then
+      best, bestLen = r.name, #r.norm
+    end
+  end
+  return best
+end
+
+-- Rank a Desktop's per-window project hits and keep the top M.maxProjects.
+-- Ties break on name so the label cannot flicker between two equally ranked
+-- projects — with an unstable order it would alternate on every read.
+local function rankProjects(hits)
+  local count, order = {}, {}
+  for _, p in ipairs(hits or {}) do
+    if count[p] == nil then count[p] = 0; order[#order + 1] = p end
+    count[p] = count[p] + 1
+  end
+  table.sort(order, function(a, b)
+    if count[a] ~= count[b] then return count[a] > count[b] end
+    return tostring(a):lower() < tostring(b):lower()
+  end)
+  local out = {}
+  for i = 1, math.min(#order, M.maxProjects or 2) do out[i] = order[i] end
+  return out
+end
+
 -- funcs: functional (non-ignored) windows on the Desktop.
 -- ctx:   text of ALL window titles on the Desktop (incl. Terminal/Finder) plus
 --        the functional apps' names — used only to spot a repo name.
@@ -832,24 +1115,27 @@ end
 -- icons: the label there names a grouping rather than the work, which is
 -- exactly the case the icons replace. Every existing caller reads the first
 -- value only, so the second is additive.
-local function detectLabel(funcs, ctx, claudeCwd)
-  -- 1) an open document inside a repo (editor apps only).
-  for _, w in ipairs(funcs) do
-    local repo = repoForPath(w.doc)
-    if repo then return repo, "repo" end
-  end
+-- Returns label, kind, and the ranked project list behind it. This is the
+-- NO-SESSION half of D67 — a Desktop that has live sessions is drawn from
+-- sessionGroupsFor instead and never reaches here for its name.
+local function detectLabel(funcs, ctx, claudeCwd, projHits)
+  -- 1) the projects this Desktop's own windows belong to, ranked by how many
+  --    windows each has, at most two, joined with " / ".
+  local projs = rankProjects(projHits)
+  if #projs > 0 then return table.concat(projs, " / "), "project", projs end
   -- 1.5) a claude session running here. Its working directory is a fact about
   --      this Desktop, so it outranks any repo name merely *mentioned* in some
   --      window's text — and it works whether or not the directory is a repo.
   if claudeCwd and claudeCwd ~= "" then return claudeCwd, "cwd" end
-  -- 2) a repo name in any title on the Desktop — the claude terminal's title
-  --    or a Finder window parked in the repo both count as a hint.
+  -- 2) a repo name in any title on the Desktop. Kept as a fallback below the
+  --    per-window pass: it reads the Desktop's whole text at once, so it can
+  --    still catch a project no single window claimed on its own.
   local nc = normalize(ctx or "")
   local proj, projLen = nil, 0
   for _, r in ipairs(repos) do
     if #r.norm >= 4 and nc:find(r.norm, 1, true) and #r.norm > projLen then proj, projLen = r.name, #r.norm end
   end
-  if proj then return proj, "repo" end
+  if proj then return proj, "project", { proj } end
   -- 3) token overlap.
   local ctoks = tokenSet(nc)
   local best, bestScore = nil, 1
@@ -858,7 +1144,7 @@ local function detectLabel(funcs, ctx, claudeCwd)
     for t in pairs(r.tokens) do if ctoks[t] then score = score + 1 end end
     if score > bestScore then best, bestScore = r.name, score end
   end
-  if best then return best, "repo" end
+  if best then return best, "project", { best } end
   -- 4) no repo — fall back to the apps. One app → its own name (Mail); several
   --    apps sharing one subject → that subject (Communication); several
   --    different subjects → Utility.
@@ -953,6 +1239,7 @@ end
 -- their titles still feed the repo hint.
 local function readSpaceFrom(byId, sid, byCg)
   local funcs, ctx, claudeCwd, extras = {}, {}, nil, {}
+  local projHits = {}                   -- one entry per window that names a project
   local ghosts, ghostSeen = {}, {}      -- apps only CoreGraphics can see
   local ids = safeWindowsForSpace(sid)
   if not ids then return nil end        -- transient failure; caller keeps old label
@@ -1009,11 +1296,16 @@ local function readSpaceFrom(byId, sid, byCg)
           -- — no accessibility call, so it costs nothing. It is what
           -- hs.image.imageFromAppBundle needs to draw the app's icon.
           local okb, bid = pcall(function() return appObj:bundleID() end)
+          local doc = M.docApps[app] and docOf(w) or nil          -- editors only
+          -- D67: what project does THIS window belong to? Counted per window,
+          -- Finder included, so a Desktop with no session can be named by the
+          -- projects it holds and ranked by how many windows each has.
+          local proj = projectOfWindow(app, title, doc)
+          if proj then projHits[#projHits + 1] = proj end
           if not M.ignoreApps[app] then
             ctx[#ctx + 1] = app
             funcs[#funcs + 1] = { win = w, app = app, title = title,
-                                  bundle = (okb and bid) or nil,
-                                  doc = M.docApps[app] and docOf(w) or nil }  -- editors only
+                                  bundle = (okb and bid) or nil, doc = doc }
           elseif isTrailingIconApp(app) then
             -- Finder and terminals are ignored for the SUBJECT — a Desktop is
             -- never *about* Finder — but "there is a Finder and two terminals
@@ -1026,7 +1318,7 @@ local function readSpaceFrom(byId, sid, byCg)
       end
     end
   end
-  return funcs, table.concat(ctx, " "), claudeCwd, extras, ghosts
+  return funcs, table.concat(ctx, " "), claudeCwd, extras, ghosts, projHits
 end
 
 -- The distinct apps in a window list, in the order they were read, as
@@ -1059,7 +1351,7 @@ end
 -- directory) that the icons follow rather than replace; `min` is how many
 -- LEADING icons must resolve before the row may stand in for a word.
 local function buildIconList(funcs, extras, ghosts, kind)
-  local named = (kind == "repo" or kind == "cwd")
+  local named = (kind == "repo" or kind == "cwd" or kind == "project")
   local seen  = {}
   local list  = collectIcons(funcs, {}, seen)
   collectIcons(ghosts or {}, list, seen)       -- subject apps too, so still leading
@@ -1082,10 +1374,11 @@ local function buildIconList(funcs, extras, ghosts, kind)
 end
 
 local function labelSpace(byId, sid, byCg)
-  local funcs, ctx, claudeCwd, extras, ghosts = readSpaceFrom(byId, sid, byCg)
+  local funcs, ctx, claudeCwd, extras, ghosts, projHits = readSpaceFrom(byId, sid, byCg)
   if not funcs then return end   -- unreadable this time; better a stale name than "—"
-  local label, kind = detectLabel(funcs, ctx, claudeCwd)
-  labelCache[sid] = label
+  local label, kind, projs = detectLabel(funcs, ctx, claudeCwd, projHits)
+  labelCache[sid]   = label
+  spaceProjects[sid] = projs     -- D67: drawn orange when no session runs here
   -- Every Desktop now gets an icon row. On one whose label names APPS (a bucket
   -- like Utility, or a single app's name) the icons REPLACE that word; on one
   -- named after a repo or a session's directory they FOLLOW the name, which no
@@ -1120,32 +1413,17 @@ end
 
 -- ---- drawing (cheap; uses cache only) ------------------------------------
 
--- The dot is shown only for a Desktop whose label IS a repo name and which has
--- a claude session in that repo — matching the Terminal title's cwd component
--- against the label, which needs no window-to-Space mapping.
--- "working" (yellow), "done" (green, finished and unacknowledged), or nil for
--- no dot at all — which covers both "no session here" and "you've seen it".
-local function claudeStateFor(label)
-  if not M.showClaudeDot then return nil end
-  local key = tostring(label or ""):lower()
-  if key == "" then return nil end
-  local state = claudeStates[key]
-  if not state then return nil end
-  -- No repo-membership test: the key already had to match a live session's
-  -- working directory, and a session in ~ is just as real as one in a repo.
-  -- Computing beats everything: once you answer a question the session resumes,
-  -- the spinner returns, and the dot goes yellow without waiting on a hook.
-  if state == "working" then return "working" end
-  -- Not computing. Only the hooks can say whether that is "blocked on you"
-  -- (red) or "finished" (green) — the title looks identical either way.
-  if claudeHooks[key] == "waiting" then return "waiting" end
-  if claudeDone[key] then return "done" end
-  return nil
-end
+-- `claudeStateFor(label)` used to live here: it looked a Desktop's claude dot up
+-- by MATCHING ITS LABEL against the set of live session directories. D67 deleted
+-- it. That match was the defect behind two symptoms seen on 2026-08-04 — a
+-- Desktop lost its dot the moment an open document renamed it, and a Desktop
+-- merely *called* `claude-config` wore the dot of a session running two Desktops
+-- away. The dot now comes from `sessionGroupsFor`, which knows which windows are
+-- on the Desktop.
 
 -- The git dot for a label: "changed" (red), "clean" (green), or nil (the label
 -- is not one of your repos, or its status has not been read yet). Looked up by
--- the DETECTED repo, exactly like claudeStateFor, so a ⌘⌃⌥N rename keeps its dot.
+-- the DETECTED repo, never by the displayed name, so a ⌘⌃⌥N rename keeps its dot.
 local function gitStateFor(label)
   if not M.showGitDot then return nil end
   local key = tostring(label or ""):lower()
@@ -1287,39 +1565,105 @@ local function sessionEntries()
   return entries
 end
 
+-- Is this label made only of project names — one, or the "A / B" pair? Returns
+-- it with any ⌘⌃⌥N project rename applied, or nil if it names something else.
+--
+-- It exists for the Desktops restored from the state file on launch, which have
+-- a name but no per-window reading behind it yet: macOS will not let us read a
+-- Space we are not on (D3), so without this they would sit in white until you
+-- visited them or pressed ⌘⌃⌥S — the one moment the colour is most useful,
+-- since a Desktop you have not been to today is exactly the one you are trying
+-- to find your way back to.
+local function projectLabel(label)
+  if not label or label == "" then return nil end
+  local parts = {}
+  for part in tostring(label):gmatch("[^/]+") do
+    part = part:gsub("^%s+", ""):gsub("%s+$", "")
+    if part ~= "" then
+      local hit = nil
+      for _, r in ipairs(repos) do
+        if tostring(r.name):lower() == part:lower() then hit = r.name; break end
+      end
+      if not hit then return nil end          -- one non-project part is enough
+      parts[#parts + 1] = displayName(hit)
+    end
+  end
+  if #parts == 0 then return nil end
+  return table.concat(parts, " / ")
+end
+
+-- One BLOCK per Desktop (D67), which is one line in the ordinary case and one
+-- line per project when several have live sessions there. `Desktop N` and the
+-- icon row belong to the block, so they appear on its first line only and the
+-- rest are indented to sit under it.
 local function screenEntries(screen)
   local spaces = safeSpacesForScreen(screen)
   local active = safeActiveSpace(screen)
   local entries = {}
   for i, sid in ipairs(spaces) do
-    local auto  = labelCache[sid]
-    -- Look the dot up by the DETECTED repo, never by what is displayed. A name
-    -- you set with ⌘⌃⌥N replaces the label but not the repo, and matching on the
-    -- displayed name silently cost every renamed Desktop its dot.
-    local state = claudeStateFor(auto)
-    -- Desktops with no session / non-repo labels keep blank dot slots so the
-    -- arrows stay aligned. Both dots are keyed off the DETECTED label (auto).
-    local dots   = withPlaceholders({ claudeDotSpec(state), gitDotSpec(gitStateFor(auto)) })
-    local mid    = dots[1].ch .. " " .. dots[2].ch   -- " " ≈ the half-gap, for width sizing
     local here   = (sid == active)
     local prefix = string.format("%sDesktop %d ",
       here and (M.activeMarker or "▸  ") or (M.inactiveMarker or "   "), i)
-    -- A line is TWO independent parts: a name, then the icon row. ⌘⌃⌥N replaces
-    -- the name and nothing else — the icons report what is actually on the
-    -- Desktop, which renaming it cannot change. The name is empty only when the
-    -- icons are standing in for a word that named apps (Utility, MacDown); a
-    -- repo or session directory keeps its text and the icons follow it.
-    local icons = iconsFor(sid)
-    local name  = overrides[sid]
-                  or ((icons and not icons.named) and "" or (auto or "…"))
-    local suffix = (name == "") and " → " or (" → " .. name .. " ")
-    local text   = prefix .. mid .. suffix
-    if icons then text = text .. string.rep(" ", iconTextPad(icons)) end
-    entries[#entries + 1] = {
-      sid = sid, dots = dots, icons = icons, prefix = prefix, suffix = suffix,
-      here = here,                           -- draws the caret + number in magenta
-      text = text,                           -- plain form, used for sizing
-    }
+    local indent = string.rep(" ", uwidth(prefix))
+    local icons  = iconsFor(sid)
+    local groups = sessionGroupsFor(sid)
+
+    if #groups > 0 then
+      -- Named by the sessions actually running here. A session is placed by its
+      -- WINDOW, so this is right even for a Desktop you are not standing on,
+      -- and an open document from some other project cannot displace it.
+      for gi, g in ipairs(groups) do
+        local dots = withPlaceholders({ claudeDotSpec(g.state), gitDotSpec(gitStateFor(g.project)) })
+        local mid  = dots[1].ch .. " " .. dots[2].ch
+        local head = (gi == 1) and prefix or indent
+        local ic   = (gi == 1) and icons or nil
+        local suffix = " → " .. displayName(g.project) .. " "
+        local text = head .. mid .. suffix
+        if ic then text = text .. string.rep(" ", iconTextPad(ic)) end
+        entries[#entries + 1] = {
+          sid = sid, wids = g.wids, project = g.project,
+          dots = dots, icons = ic, prefix = head, suffix = suffix,
+          here = here and gi == 1,           -- the caret belongs to the block
+          text = text,
+        }
+      end
+    else
+      -- No session here. The name is the projects this Desktop's windows belong
+      -- to — orange, because it means "still set up for this", not "running" —
+      -- or the app/subject label as before.
+      local auto  = labelCache[sid]
+      local projs = spaceProjects[sid]
+      local shown = nil
+      if projs and #projs > 0 then
+        local t = {}
+        for k, p in ipairs(projs) do t[k] = displayName(p) end
+        shown = table.concat(t, " / ")
+      else
+        shown = projectLabel(auto)             -- restored, not yet re-read
+      end
+      -- No dots at all: there is no session on this Desktop, and a git dot here
+      -- would read as one. The two blank slots stay so the arrows keep their
+      -- column with the session lines above and below.
+      local dots  = { claudeDotSpec(nil), gitDotSpec(nil) }
+      local mid   = dots[1].ch .. " " .. dots[2].ch
+      -- A line is TWO independent parts: a name, then the icon row. ⌘⌃⌥N
+      -- replaces the name and nothing else — the icons report what is actually
+      -- on the Desktop, which renaming it cannot change. The name is empty only
+      -- when the icons stand in for a word that named apps (Utility, MacDown).
+      local name  = overrides[sid]
+                    or ((icons and not icons.named) and "" or (shown or auto or "…"))
+      local suffix = (name == "") and " → " or (" → " .. name .. " ")
+      local text   = prefix .. mid .. suffix
+      if icons then text = text .. string.rep(" ", iconTextPad(icons)) end
+      entries[#entries + 1] = {
+        sid = sid, dots = dots, icons = icons, prefix = prefix, suffix = suffix,
+        here = here,                         -- draws the caret + number in magenta
+        -- Orange only when the name IS the projects. A ⌘⌃⌥N Desktop name is
+        -- your word for the Desktop, not a claim about what is on it.
+        nameColor = (shown and not overrides[sid]) and M.projectColor or nil,
+        text = text,                         -- plain form, used for sizing
+      }
+    end
   end
   return entries
 end
@@ -1344,7 +1688,12 @@ local function displayedRepos()
   end
   if M.mode ~= "terminals" then
     for _, s in ipairs(hs.screen.allScreens()) do
-      for _, sid in ipairs(safeSpacesForScreen(s)) do add(labelCache[sid]) end
+      for _, sid in ipairs(safeSpacesForScreen(s)) do
+        -- A Desktop's session projects are ON the panel now (D67), so ⌘⌃⌥g must
+        -- query them; labelCache holds only the no-session name.
+        for _, g in ipairs(sessionGroupsFor(sid)) do add(g.project) end
+        add(labelCache[sid])
+      end
     end
   end
   if M.mode == "terminals" or M.mode == "both" then
@@ -1399,9 +1748,9 @@ local function describeChanges(files)
 end
 
 -- Is a claude session in the way? Returns a reason to refuse, or nil.
--- Keyed off claudeStates, the live read of terminal titles — NOT claudeStateFor,
--- which returns nil once you've acknowledged a session and would call a busy
--- repo clear.
+-- Keyed off claudeStates, the live read of terminal titles — deliberately not
+-- off the panel's dot, which goes out once you have acknowledged a session and
+-- would call a busy repo clear.
 local function pullBlockedByClaude(name)
   local mode = M.pullBlockOnClaude
   if mode == false then return nil end
@@ -1458,7 +1807,6 @@ local function pullRepo(path, name)
     .. 'git -C %s pull %s 2>&1', shQuote(path), args)
 
   local function finish(okPull, out)
-    if pullWatchdog then pullWatchdog:stop(); pullWatchdog = nil end
     pullTask = nil
     out = tostring(out or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if okPull then
@@ -1482,16 +1830,20 @@ local function pullRepo(path, name)
   end
 
   local function doPull()
-    local ok, t = pcall(hs.task.new, "/bin/sh", function(code, stdout, stderr)
-      finish(code == 0, (stdout or "") .. (stderr or ""))
-    end, { "-c", script })
-    if not (ok and t) then ghSay("could not start the pull", "#ff6f6a"); return end
+    -- runTask owns the timeout now, and its `fired` guard is why finish() can no
+    -- longer be called twice: killing a task also fires its termination
+    -- callback, so the old hand-rolled watchdog reported the same pull twice.
+    local t = runTask("/bin/sh", { "-c", script }, M.pullTimeout or 120,
+      function(code, stdout, stderr, timedOut)
+        if timedOut then
+          finish(false, "timed out after " .. (M.pullTimeout or 120) .. "s")
+        else
+          finish(code == 0, (stdout or "") .. (stderr or ""))
+        end
+      end)
+    if not t then ghSay("could not start the pull", "#ff6f6a"); return end
     pullTask = t
     t:start()
-    pullWatchdog = hs.timer.doAfter(M.pullTimeout or 120, function()
-      if pullTask then pcall(function() pullTask:terminate() end) end
-      finish(false, "timed out after " .. (M.pullTimeout or 120) .. "s")
-    end)
   end
 
   if M.pullBlockOnOpenFiles == false then ghSay("pulling " .. name .. "…", "#ffc73a"); doPull(); return end
@@ -1499,8 +1851,16 @@ local function pullRepo(path, name)
   -- Find out what would change before changing it.
   ghSay("checking what " .. name .. " would change…", "#ffc73a")
   local pre = string.format(PULL_PRECHECK, shQuote(path), shQuote(path))
-  local okp, pt = pcall(hs.task.new, "/bin/sh", function(_, stdout, _)
+  -- The check reaches the network too, so it gets the pull's timeout. Without
+  -- one a wedged fetch would leave pullPrecheckTask set and every later click
+  -- would report "a pull is already running".
+  local pt = runTask("/bin/sh", { "-c", pre }, M.pullTimeout or 120,
+    function(_, stdout, _, timedOut)
     pullPrecheckTask = nil
+    if timedOut then
+      ghSay(name .. ": checking the remote timed out — nothing was changed.", "#ff6f6a")
+      return
+    end
     local text = tostring(stdout or "")
     if text:find("__FETCHFAIL__", 1, true) then
       ghSay(name .. ": couldn't reach the remote — nothing was changed.", "#ff6f6a")
@@ -1546,20 +1906,10 @@ local function pullRepo(path, name)
       .. "<span class='act' onclick=\"window.webkit.messageHandlers.dashboard"
       .. ".postMessage({action:'cancelPull'})\">Cancel</span>",
       htmlEscape(name), htmlEscape(describeChanges(changed))))
-  end, { "-c", pre })
-  if not (okp and pt) then ghSay("could not check " .. name, "#ff6f6a"); return end
+  end)
+  if not pt then ghSay("could not check " .. name, "#ff6f6a"); return end
   pullPrecheckTask = pt
   pt:start()
-  -- The check reaches the network too, so it needs the same watchdog the pull
-  -- has. Without one a wedged fetch would leave pullPrecheckTask set and every
-  -- later click would report "a pull is already running".
-  pullWatchdog = hs.timer.doAfter(M.pullTimeout or 120, function()
-    if pullPrecheckTask then
-      pcall(function() pullPrecheckTask:terminate() end)
-      pullPrecheckTask = nil
-      ghSay(name .. ": checking the remote timed out — nothing was changed.", "#ff6f6a")
-    end
-  end)
 end
 
 -- The popup's JS calls into here. Built once and reused: a controller outlives
@@ -1717,11 +2067,15 @@ function M.scanGitHub()
   local function finish()
     if done then return end
     done = true
-    if ghWatchdog then ghWatchdog:stop(); ghWatchdog = nil end
     showGitHubPopup(rows)
   end
-  local ok, t = pcall(hs.task.new, "/bin/sh", function(_, stdout, _)
+  -- runTask owns the timeout: a wedged network read (despite
+  -- GIT_TERMINAL_PROMPT=0) must never leave the query pinned. It is killed and
+  -- whatever came back is shown.
+  local t = runTask("/bin/sh", { "-c", script }, M.githubTimeout or 20,
+    function(_, stdout, _, timedOut)
     ghTask = nil
+    if timedOut then hs.alert.show("GitHub query timed out") end
     for line in tostring(stdout or ""):gmatch("[^\n]+") do
       local p, b, dirty, ahead, lc, gh = line:match("^(.-)\t(.-)\t(.-)\t(.-)\t(.-)\t(%S+)$")
       if p then
@@ -1731,18 +2085,10 @@ function M.scanGitHub()
       end
     end
     finish()
-  end, { "-c", script })
-  if ok and t then
+  end)
+  if t then
     ghTask = t
     t:start()
-    -- Watchdog: a wedged network read (despite GIT_TERMINAL_PROMPT=0) must never
-    -- leave the query pinned. Kill it and show whatever came back.
-    ghWatchdog = hs.timer.doAfter(M.githubTimeout or 20, function()
-      if ghTask then pcall(function() ghTask:terminate() end); ghTask = nil
-        hs.alert.show("GitHub query timed out")
-      end
-      finish()
-    end)
   else
     hs.alert.show("Could not start GitHub query")
   end
@@ -1928,6 +2274,22 @@ local function activateElement(elementId)
     end
     return
   end
+  -- A Desktop line named after a live session: raise that session's terminal
+  -- window, which switches Desktops on the way. Where the project has more than
+  -- one session there, each click takes the next one, so a second click on the
+  -- same line is how you reach the second window rather than a no-op (D67).
+  local ci = tonumber(elementId:match("^cyc:(%d+)$") or "")
+  if ci then
+    local e = cycleTargets[ci]
+    if e and e.wids and #e.wids > 0 then
+      local key = tostring(e.sid) .. "\0" .. tostring(e.project):lower()
+      local n   = ((cycleNext[key] or 0) % #e.wids) + 1
+      cycleNext[key] = n
+      focusTerminalWindow(e.wids[n])
+      pcall(draw)
+    end
+    return
+  end
   local sid = tonumber(elementId:match("^go:(%-?%d+)$") or "")
   if sid then pcall(hs.spaces.gotoSpace, sid); return end
   local wid = tonumber(elementId:match("^term:(%d+)$") or "")
@@ -2075,6 +2437,7 @@ draw = function()
   for _, c in ipairs(canvases) do pcall(function() c.cv:delete() end) end
   canvases = {}
   iconMeta = {}                  -- rebuilt below; ids are per-element and per-draw
+  cycleTargets = {}              -- likewise: a session line's windows, by click id
   if not M.visible then clearHover(); return end   -- ⌘⌃⌥D must take the tip with it
 
   local screens = hs.screen.allScreens()
@@ -2105,10 +2468,14 @@ draw = function()
   -- running: the status line is saying the same thing more precisely.
   local staleText
   if M.showStaleHint ~= false and not hasStatus then
-    local n = 0
+    local n, counted = 0, {}
     for _, blk in ipairs(blocks) do
       for _, e in ipairs(blk.entries) do
-        if e.sid and not liveRead[e.sid] then n = n + 1 end
+        -- Once per DESKTOP, not once per line: a Desktop running sessions in
+        -- two projects is two entries and would otherwise be counted twice.
+        if e.sid and not liveRead[e.sid] and not counted[e.sid] then
+          counted[e.sid] = true; n = n + 1
+        end
       end
     end
     if n > 0 then
@@ -2215,15 +2582,30 @@ draw = function()
               if i > 1 then st = st .. hs.styledtext.new(" ", gap) end
               st = st .. hs.styledtext.new(d.ch, { font = font, color = d.color or { white = 1, alpha = 1 } })
             end
-            return st .. hs.styledtext.new(e.suffix, plain)
+            -- The name carries its own colour when the Desktop is named after
+            -- projects it merely HOLDS rather than runs (D67) — orange there,
+            -- white everywhere else.
+            local tail = e.nameColor and { font = font, color = e.nameColor } or plain
+            return st .. hs.styledtext.new(e.suffix, tail)
           end)
           if ok and styled then body, styledBody = styled, styled end
         end
         -- Every element of a line carries the SAME id, so clicking an app icon
         -- switches Desktops exactly like clicking its text, and a drag begun on
         -- an icon moves the panel.
-        local elemId = e.sid and ("go:" .. tostring(e.sid))
-                       or (e.wid and ("term:" .. tostring(e.wid)) or "line")
+        -- A session line raises its terminal window rather than just switching
+        -- Desktops, and where a project has several sessions there, successive
+        -- clicks cycle through them (D67). The windows are held in a table
+        -- rebuilt with every draw, because the id has to survive a project name
+        -- containing any character at all.
+        local elemId
+        if e.wids and #e.wids > 0 then
+          cycleTargets[#cycleTargets + 1] = e
+          elemId = "cyc:" .. tostring(#cycleTargets)
+        else
+          elemId = e.sid and ("go:" .. tostring(e.sid))
+                   or (e.wid and ("term:" .. tostring(e.wid)) or "line")
+        end
         cv:appendElements({
           type = "text", text = body,
           textFont = "Menlo", textSize = M.fontSize,
@@ -2429,6 +2811,30 @@ function M.nameCurrent()
     return safeActiveSpace(hs.mouse.getCurrentScreen() or hs.screen.mainScreen())
   end)()
   if not sid then hs.alert.show("Couldn't identify the current Desktop"); return end
+  -- D67: on a Desktop named after live sessions, ⌘⌃⌥N renames the PROJECT, not
+  -- the Desktop — that name then reads the same wherever the project appears,
+  -- and survives moving the session to another Desktop. Which project, when
+  -- several run here: the one whose window you are looking at, falling back to
+  -- the first line.
+  local groups = sessionGroupsFor(sid)
+  if #groups > 0 then
+    local target = groups[1]
+    for _, g in ipairs(groups) do
+      for _, w in ipairs(g.wids) do if w == frontSession then target = g end end
+    end
+    local key = tostring(target.project):lower()
+    local btnP, txtP = hs.dialog.textPrompt(
+      "Name this project",
+      ("Custom name for %s, wherever it appears on the panel. Leave blank to clear it.")
+        :format(target.project),
+      projectNames[key] or target.project, "Save", "Cancel")
+    if btnP ~= "Save" then return end
+    txtP = (txtP or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    projectNames[key] = (txtP ~= "" and txtP ~= target.project) and txtP or nil
+    draw()
+    M.saveLayout()
+    return
+  end
   local cur = overrides[sid] or labelCache[sid] or ""
   local btn, txt = hs.dialog.textPrompt(
     "Name this Desktop",
@@ -2519,7 +2925,11 @@ function M.saveLayout()
   -- each autosave blanked every Desktop not visited this session. Measured:
   -- 6 of 12 Desktops had been emptied that way.
   local prev = loadState()
-  local state = { savedAt = os.time(), mode = M.mode, fontSize = M.fontSize, screens = {} }
+  -- Project names are NOT under a screen: a project's name is global to the
+  -- panel (D67), so it cannot live in a per-screen, per-position slot the way a
+  -- Desktop override does.
+  local state = { savedAt = os.time(), mode = M.mode, fontSize = M.fontSize,
+                  projects = next(projectNames) and projectNames or nil, screens = {} }
   for _, s in ipairs(hs.screen.allScreens()) do
     local key    = s:getUUID() or s:name() or "screen"
     local spaces = safeSpacesForScreen(s)
@@ -2581,6 +2991,11 @@ local function restoreNames()
   local fs = tonumber(state.fontSize)
   if fs then
     M.fontSize = math.max(M.minFontSize or 9, math.min(M.maxFontSize or 28, math.floor(fs)))
+  end
+  if type(state.projects) == "table" then
+    for k, v in pairs(state.projects) do
+      if type(k) == "string" and type(v) == "string" then projectNames[k:lower()] = v end
+    end
   end
   if not state.screens then return end
   for _, s in ipairs(hs.screen.allScreens()) do
@@ -2722,7 +3137,9 @@ function M.stop()
   if refreshTimer  then refreshTimer:stop() end
   if claudeTimer   then claudeTimer:stop() end
   if gitTimer      then gitTimer:stop() end
-  if ghWatchdog    then ghWatchdog:stop(); ghWatchdog = nil end
+  -- Every runTask watchdog still counting, whichever read armed it.
+  for w in pairs(liveWatchdogs) do pcall(function() w:stop() end) end
+  liveWatchdogs = {}
   if ghTask        then pcall(function() ghTask:terminate() end); ghTask = nil end
   if ghWebview     then pcall(function() ghWebview:delete() end); ghWebview = nil end
   if autosaveTimer then autosaveTimer:stop() end

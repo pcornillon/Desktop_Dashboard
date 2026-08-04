@@ -1,20 +1,32 @@
 # STATUS.md — Desktop Dashboard
 
 Living snapshot of where this project stands. Rewritten, not appended.
-Last updated: **2026-08-03 23:15 EDT** (`satdat1`, during the spine migration).
+Last updated: **2026-08-04 14:33 EDT** (`satdat1`).
 
 ---
 
 ## State
 
-- **The tool is at `v46` and in daily use.** `M.version` reads
-  `"v46 (name both ways to read the unread Desktops, 2026-08-01)"`
-  (`desktop_dashboard.lua:68`). 2,736 lines, one file.
-- **The last functional change was 2026-08-01** (`f9c4d05`, v46). The only commit since
-  is `6442953` on 2026-08-02, a documentation correction: the claim that renaming a Space
-  requires SIP-off was wrong, and the README now points at SpaceJump for anyone who only
-  wants renaming (**D1**).
-- **Nothing is in flight.** No feature was half-built and left; there is no `doing` task.
+- **The tool is at `v50` and in daily use.** `M.version` reads
+  `"v50 (Desktops named by their live sessions; projects in teal, 2026-08-04)"`.
+  One file.
+- **The last functional change was today**, and it was a repair. Every dot on the panel had
+  gone dead: `hs.task` deadlocks on more than ~512 bytes of output unless a streaming
+  callback drains the pipe, which took out four of the six subprocess reads at once, and
+  the in-flight guards above them stayed pinned — one child ran 5 h 21 min. Neither ⌘⌃⌥S
+  nor a Hammerspoon restart could clear it. Fixed by routing every read through one
+  `runTask` helper that streams and times out (**D65**, Task **#4**). That fix then
+  **truncated** the session list — `hs.task` splits its output between its two callbacks and
+  drops any chunk ending inside a multi-byte character — so `runTask` now captures to a file
+  instead of a pipe (**D66**, Task **#6**). Verified: 62 consecutive samples of the live
+  session list, no truncation, against 8 truncated in 56 before. The measurements are in D65
+  and D66.
+- **D67 is built** (Task #5, `v49`): a Desktop is named by the projects with live
+  sessions on it, one line each, joined to their Desktops by **window** rather than by
+  name; a Desktop with none is named after the projects its windows belong to, in teal,
+  and carries no dots.
+- **Uncommitted.** `desktop_dashboard.lua` (v49) and the spine files carry today's work;
+  nothing has been committed yet.
 - **This repo was migrated onto the project spine on 2026-08-03** (`claude-config`
   Tasks #11 and #19). What changed:
   - `DECISIONS.md` now exists and holds **D1–D64**, lifted out of `CLAUDE.md` where they
@@ -49,9 +61,12 @@ Everything in this section was run or read, not recalled.
 - Working tree clean and level with `origin/main` before the migration began
   (`6442953`).
 
-## Decisions taken (D1–D64)
+## Decisions taken (D1–D67)
 
-All lifted from `CLAUDE.md` on 2026-08-03; none is new.
+D1–D64 were lifted from `CLAUDE.md` on 2026-08-03 and none of those is new. **Three are new
+today**: every `hs.task` carries a timeout (**D65**), a subprocess writes to a file rather
+than a pipe (**D66**), and a Desktop is named by its live sessions, failing that by the
+projects its windows belong to (**D67**).
 
 Platform: overlay rather than renaming (D1), Hammerspoon (D2), active-Space-only reads
 (D3), one `allWindows()` snapshot per read (D4), the `docApps` allowlist (D5).
@@ -68,11 +83,29 @@ no push button (D36), plus D37–D39.
 Rendering: D40–D59.
 Lifecycle: D60–D62.
 Repo: `PRE_CONVERSION/` (D63), the code stays at the top level (D64).
+Subprocesses: time out every read (D65), capture to a file (D66).
+Naming: sessions first, then the projects a Desktop's windows belong to (D67).
 
 ## Active thread — resume here
 
-**Nothing is in flight.** The tool works, the tree is clean, and the migration is
-complete.
+**Nothing is in flight.** Today's three faults are all fixed and verified: the dead dots
+(**D65**), the flickering session list (**D66**), and the naming rule that let an open
+document steal a Desktop's name from the session running on it (**D67**, Task #5, `v49`).
+
+**Two things want a mouse, and only Peter has one:**
+
+- **Click-to-cycle and ⌘⌃⌥N on a session line** — built, not exercised. Clicking a session
+  line raises that project's terminal window, and clicking again takes the next session in
+  the same project. ⌘⌃⌥N there renames the project everywhere it appears.
+- **⌘⌃⌥g and its pull** — they go through the rewritten `runTask` and were not exercised,
+  because the popup would have appeared on his screen unasked and the pull writes to a
+  repository. Worth pressing ⌘⌃⌥g once.
+
+**One migration consequence he will see immediately:** a ⌘⌃⌥N name set on a Desktop that
+now has a session is ignored, since such a line is named by its project. `Desktop 4` reads
+`three-way_SST_error_analysis_manuscript` again rather than `3-way_analysis`, and is much
+wider for it. Re-applying it as a **project** name fixes it everywhere at once. Adopting the
+old Desktop overrides automatically was deliberately not done — see Task #5.
 
 **One thing is waiting on Peter: Task #1** — the two copies of
 `claude-dashboard-state.sh` have diverged and the copy this repo ships is the older one

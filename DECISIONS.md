@@ -706,3 +706,154 @@ during the migration.
   registrations. **Moving either would silently break a live installation on every machine
   that has one** — and the second one would break it for anyone who followed `INSTALL.md`.
 - **Where:** `INSTALL.md`, `init.lua.example`, `~/.claude/settings.json`.
+
+### D65. Every `hs.task` streams its output and carries a timeout
+- **Decision:** all subprocess reads go through one `runTask(bin, args, timeout, done)`
+  helper. It installs a **streaming callback** that accumulates stdout/stderr as they
+  arrive, and a **watchdog** that terminates a read that has not come back. `done` receives
+  the accumulated buffers plus a `timedOut` flag; a stall is announced with
+  `hs.alert` and printed to the console, once per stall. No new `hs.task.new` call is
+  written by hand.
+- **Why:** **without a streaming callback, `hs.task` deadlocks on more than ~512 bytes of
+  output.** Hammerspoon does not drain the child's stdout until the child exits, and a
+  macOS pipe starts with a 512-byte buffer, so a child that writes more blocks for ever
+  inside `exit()` — work finished, output stuck in the pipe, termination callback never
+  fired. Measured 2026-08-04 on **Hammerspoon 1.1.1 (build 6936), macOS 14.1.1**, with
+  `osascript` children returning strings of known length:
+
+  | stdout | callback fires? |
+  |---|---|
+  | 100, 300, 500 bytes | yes |
+  | 700, 900, 1100, 1500 bytes | **never** |
+
+  The fix was verified on the same child at **253,893 bytes in 502 chunks**, complete at
+  the moment the termination callback fired. The streaming callback **must return true**;
+  returning false stops the drain and restores the deadlock.
+- **What it cost, which is the real argument:** the claude title read emits ~900 bytes with
+  13 Terminal windows open and the git pass about one line per repo, so **four of the six
+  reads were over the limit and the panel's whole async layer was down at once** — no
+  claude dot, no git dot, no ⌘⌃⌥g. Worse, each read sits behind an
+  `if <task> then return end` in-flight guard, so one deadlocked child pinned its guard for
+  the life of the session: on 2026-08-04 an `osascript` child ran **5 h 21 min** and every
+  poll behind it returned instantly without doing anything. **⌘⌃⌥S could not help**, because
+  `scanActive` calls the same function. Restarting Hammerspoon did not help either — the
+  relaunched instance's first poll deadlocked 3 s after launch.
+- **Why the timeout is not optional:** a panel with no dots is indistinguishable from
+  "nothing is running". The failure is silent, it looks like a correct answer, and it
+  survives every reflex a user has (rescan, reload, restart). The timeout bounds it and the
+  alert names it.
+- **Ordering:** `runTask` returns the task **unstarted** so the caller can store its
+  in-flight reference before any callback can fire. Its `fired` guard also removed a
+  pre-existing double-report in the ⌘⌃⌥g pull, where killing a task fired the termination
+  callback *and* the hand-rolled watchdog.
+- **Where:** `runTask`, `noteTaskStall`, `liveWatchdogs`, `M.taskTimeout` (20 s) in
+  `desktop_dashboard.lua`; the five reads that capture output — `refreshClaudeStates`,
+  `refreshGitStates`, `M.scanGitHub`, and the pull and its pre-check. The sixth,
+  `focusTerminalWindow`, passes a `nil` callback and captures nothing.
+- **Live tension:** whether this is a Hammerspoon bug or documented behaviour was not
+  established, so a future Hammerspoon may make the streaming callback unnecessary. It
+  stays regardless: it is correct either way, and the timeout is worth having on its own.
+
+### D66. A subprocess writes to a file, never to a pipe
+- **Decision:** `runTask` wraps every command in `/bin/sh -c 'exec >out 2>err; exec <cmd>'`
+  and reads those two files once the child has exited. The streaming callback stays as a
+  drain of last resort, and whatever it delivers is **appended** to the file's contents —
+  never chosen between.
+- **Why:** D65's streaming fix stopped the deadlock but read the output **wrongly**, and
+  the panel's session list flickered between a complete and a truncated view every few
+  seconds. Two further properties of `hs.task`, measured 2026-08-04 on Hammerspoon 1.1.1
+  (build 6936) with a child writing 914 bytes in a single `write()`:
+
+  | child output | streaming callback got | termination callback got |
+  |---|---|---|
+  | 914 bytes, no multi-byte characters | 511 | **403** |
+  | 914 bytes, an em dash straddling the 512-byte boundary | **0** | 403 |
+
+  **The output is split between the two callbacks**, so either one alone is a truncated
+  read — that was the flicker, and it was a bug in D65's helper, which preferred the
+  streamed bytes and discarded the rest. And **a chunk that ends inside a multi-byte
+  character is dropped entirely**: the whole 511-byte chunk vanished, unrecoverably, at the
+  NSData→NSString conversion. Nothing in Lua can get it back.
+- **Why a file rather than more careful pipe handling:** the titles this panel reads are
+  full of `—`, `✳`, `⠂`, `×` and `◂`, so a chunk boundary lands inside a character often —
+  it is a routine event here, not an edge case. A file has no buffer to fill, no chunking,
+  no text conversion, and is complete the moment the child exits. It removes the cause of
+  D65's deadlock as well as the truncation, rather than working around either.
+- **Cost:** one small write and one read per poll — every 3 s for the session read, 15 s for
+  git. The files are removed as they are read, and on the failure path too.
+- **Where:** `runTask`, `readAndRemove`, `captureDir`, `shQuote` (moved above `runTask`, as
+  the command line is now built there) in `desktop_dashboard.lua`.
+- **Note:** `exec` replaces the wrapping shell, so the exit status reaching `hs.task` is the
+  command's own. The ⌘⌃⌥g pull depends on that.
+
+### D67. A Desktop is named by its live claude sessions; failing that, by the projects its windows belong to
+- **Decision:** a Desktop with live claude sessions gets **one line per project** — not per
+  session — named for that project, and nothing else is shown on it. A Desktop with no live
+  session shows the projects its windows belong to, drawn in **orange**, at most **two**,
+  ranked by how many windows on that Desktop belong to each, joined with ` / `. A Desktop
+  with neither is unchanged: app, subject or `Utility`, with its icon row.
+- **Why the orange state exists — the part that must not be lost:** it does **not** mean "a
+  session is running here". It means **the Desktop is still set up for that project**. You
+  exited claude but left the windows, and tomorrow you want to find your way back and
+  restart it. That purpose is why its evidence is deliberately looser than the session
+  rule's: a document open under a repo root, a repo name in a window title, **or a Finder
+  window parked in the repo**.
+- **Why per project and not per session:** three sessions in one repo are one piece of
+  information about the Desktop. A line each would grow the panel every time a session is
+  opened, for no gain. Three sessions — two in `Desktop_Dashboard`, one in `claude-config` —
+  give **two** lines.
+- **Why it is now correct:** a session is tied to its Desktop **by its window**, not by
+  matching its directory name against the Desktop's label. Measured 2026-08-04: Terminal's
+  AppleScript window `id` **is** the id `hs.spaces` uses, and `hs.spaces.windowSpaces(id)`
+  placed 13 windows in **2.9 ms**, answering for **inactive** Spaces too. Sweeping
+  `windowsForSpace` over all 15 Spaces instead costs **330 ms**. The old string match is
+  what let an open `CLAUDE.md` from another project steal a Desktop's name *and its dot*,
+  and what showed a session's dot on a Desktop the session was not on.
+- **Interaction:** clicking a session line raises that project's terminal window on that
+  Desktop, **cycling** through them where a project has several there. ⌘⌃⌥N on a session
+  line renames the **project**, and that name is **global to the panel** — the project reads
+  the same wherever it appears, and the rename survives moving the session to another
+  Desktop. ⌘⌃⌥N anywhere else keeps the per-Desktop override of **D16**.
+- **Supersedes:** the ordering in `detectLabel` where an open document outranks a live
+  session's cwd (**D13**/**D14** stand; what changes is that a document no longer outranks
+  a session), and **part of D7** — Finder contributes evidence again, but **only** to the
+  orange state. D7's measured counterexample was put to Peter and accepted: a Desktop
+  holding MATLAB, some `-zsh` windows and one Finder window parked in `Desktop_Dashboard`
+  will now read `Desktop_Dashboard` in orange rather than `MATLAB`. What defuses it is that
+  orange claims "set up for" rather than "the subject of", and the icon row still shows
+  MATLAB.
+- **Also decided, in the write-up:** the `Desktop N` prefix appears on the first line of a
+  multi-line Desktop and the rest are indented under it; the icon row goes on that first
+  line only; **`both` mode keeps its `T#` list**, which is no longer redundant now that the
+  Desktop lines collapse sessions by project while `T#` still enumerates each session with
+  its task summary; "project" means any repo under `repoRoots`, not only one carrying a
+  `CLAUDE.md`; ties in the two-project ranking break on name, ascending, so the label cannot
+  flicker between two equally ranked projects; and a minimized session window, which reports
+  no Space, gets no Desktop line but still appears in the `T#` list.
+- **Live tension:** the session poll reads **Terminal only**, so a session in iTerm, Ghostty
+  or kitty produces no line however this rule is written. And the orange evidence for a
+  Desktop you are not standing on is only as fresh as your last visit or ⌘⌃⌥S (**D3**).
+- **Where:** `detectLabel`, `readSpaceFrom`, `screenEntries`, `claudeStateFor`, the click
+  handler and ⌘⌃⌥N — Task **#5**.
+- **Amended within the day: the colour is TEAL, not orange — see D74.** Everything else
+  here stands; orange shipped in `v49` and was rejected on sight for colliding with the
+  amber status and stale-hint lines.
+
+### D74. A Desktop named after its projects is drawn in teal
+- **Decision:** `M.projectColor` is teal, `{ 0.30, 0.80, 0.75 }`. It supersedes the orange
+  of **D67**, which shipped in `v49` and lasted about twenty minutes.
+- **Why not orange:** the scan status line and the stale-Desktop hint under the list are
+  amber — `{1, 0.82, 0.35}` and `{1, 0.72, 0.35}` — so a third warm tone in one small panel
+  read as one family rather than as three unrelated things. Reported on sight.
+- **Why not blue, which is the obvious choice and the wrong one:** the legend's clickable
+  words are blue (`M.legendClickColor`, `{0.45, 0.75, 1.00}`) and the legend **says so in
+  words** — "click a line, or a blue word". The section headings are `{0.55, 0.8, 1.0}`,
+  within a hair of the same blue. A third blue would have to be dark to be distinguishable,
+  and dark is exactly what the panel's near-black background cannot carry. Peter asked for
+  dark blue; this is the one place his instruction was not followed, and the reason is that
+  the feature that claims blue was written on his other machine and had not merged yet, so
+  the collision was not visible from where he was looking.
+- **Why teal works:** it is the one cool slot nothing else claims, it is legible at Menlo 13
+  on the panel's background, and it reads as *dormant* beside the warm yellow/amber cues
+  that all mean *live* — which is the distinction the colour is carrying.
+- **Where:** `M.projectColor`, `screenEntries` (`nameColor`), `README.md`, `CLAUDE.md`.

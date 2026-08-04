@@ -551,24 +551,44 @@ updates your `origin/…` tracking refs even when it declines to move your branc
 
 ## How a Desktop gets its label
 
-In order, first match wins:
+**A Desktop that has claude sessions is named after them, one line per project.**
 
-1. **An open file inside a repo** — for editors in `M.docApps`, the document's path. The
-   path names the repo, so the file is never opened or read.
-2. **A claude session running on it** — its working directory, whether or not that's one
-   of your repos. A session's location is a fact about the Desktop, so it beats a repo name
-   that merely appears in some window's text. Only the directory counts; the session's task
-   summary is deliberately ignored, since matching repo names inside prose is where every
-   mislabel has come from.
-3. **A repo name in a window title** — but only from titles that name a *location*. A
-   terminal counts **only when it's running `claude`**; a shell that happens to be `cd`'d
-   somewhere does not. Finder, browsers and chat apps never count: their titles name what
-   you're *browsing* or *discussing*, which is not what the Desktop is *for*.
-4. **Loose token overlap** with a repo name.
-5. **The apps themselves** — shown as their **icons** ([App icons](#app-icons)). The words
-   behind that row, which is what you see with icons turned off, are: one app → its name;
-   several sharing a subject → that subject (`Communication`); several subjects →
-   `Utility`.
+Every session is placed by its *terminal window*, so it labels the Desktop that window is
+actually on — not whichever Desktop happens to carry a matching folder name. Sessions in
+the same project share one line, so a Desktop running three sessions in one repo stays one
+line; a Desktop running two in `Desktop_Dashboard` and one in `claude-config` draws two,
+both under the same `Desktop N`:
+
+```
+   Desktop 13  ● ● → AGU_2026_submission     🅜 🔵
+               ● ● → MODIS_L2_Manuscript
+```
+
+Clicking one of those lines raises that project's terminal window. Where a project has
+several sessions there, clicking again takes the next one. ⌘⌃⌥N on such a line renames the
+**project**, and it then reads that way everywhere it appears.
+
+**A Desktop with no session is named after the projects its windows belong to, in teal.**
+
+That means *"still set up for this — come back and restart it"*: you exited claude but left
+the windows open, and tomorrow this is how you find your way back. Because it claims less,
+its evidence is looser than the session rule's — an open document under a repo, a **Finder
+window sitting in the repo**, or a repo name in a window title. Windows are counted, and the
+**two** projects with the most windows are shown, joined with ` / `. Such a line carries
+**no dots at all**: there is no session on it, and a dot would say there was.
+
+**Failing both**, in order: a repo name appearing anywhere in the Desktop's window titles,
+then loose token overlap, then **the apps themselves** — shown as their
+**icons** ([App icons](#app-icons)). The words behind that row, which is what you see with
+icons turned off, are: one app → its name; several sharing a subject → that subject
+(`Communication`); several subjects → `Utility`.
+
+Two things to know before you wonder why a line is missing:
+
+- Sessions are read from **Terminal only**. A session in iTerm, Ghostty or kitty is invisible
+  to the panel however it is configured.
+- A **minimized** terminal window reports no Desktop, so its session gets no Desktop line.
+  It still appears in the `T#` sessions view.
 
 ## Configuration
 
