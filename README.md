@@ -73,6 +73,17 @@ tells you nothing. Same dots, per session.
 switch there **and** raise that app's window; click a session line to jump to its terminal
 window. Point at an icon and it names itself and the window it would raise.
 
+**A blue word in the legend is a button.** `scan`, `name`, `mode` and `GitHub` each do
+exactly what their hotkey does. This exists for remote sessions — over VNC or Screen
+Sharing the panel is perfectly readable but ⌘⌃⌥ never reaches the far machine, so the
+hotkeys are exactly what you can't use.
+
+Two words are deliberately *not* clickable. `hide` would be a one-way door: unhiding is the
+same hotkey, so on a machine that can't press it you'd have no way back. And `restore`
+moves and opens windows across every Desktop with no inverse — far too much to sit one
+stray click away from the words beside it. Both stay hotkey-only. Edit `M.legendClicks` if
+you disagree.
+
 **The legend** at the bottom lists the hotkeys, and the **grip in the bottom-right corner**
 resizes the whole panel — drag it out or in, everything scales together. Drag the panel
 itself anywhere; each display remembers where you put it.
@@ -301,6 +312,46 @@ the dashboard can see. Visiting the Desktop is the acknowledgement.
 
 The title check runs in the background, so a slow or unresponsive Terminal can never freeze
 the panel. Set `M.showClaudeDot = false` to turn the dots off entirely.
+
+## When the session is on another Mac
+
+The red dot solves "which Desktop wants me" for the machine you're sitting at. It can't
+solve "a session on my office Mac has been blocked on a permission prompt since 9am" —
+and that's the one that actually costs a morning.
+
+The hook already fires at exactly that instant, so it can optionally also raise an alert
+that **leaves the machine**. Create `~/.claude/dashboard-notify.conf` on the machine you
+leave running:
+
+```
+NOTIFY_DROPBOX=1
+NOTIFY_NTFY_URL="https://ntfy.sh/<a-long-random-string>"
+NOTIFY_DETAIL=0
+```
+
+- **`NOTIFY_DROPBOX=1`** drops a marker into `~/Dropbox/claude/dashboard_alerts` the
+  moment a session blocks, and removes it the moment you answer. Any other Mac running
+  the dashboard shows a red line above the legend — `satdat1 · Desktop_Dashboard is
+  waiting on you` — and posts a notification the first time it sees it. Markers from your
+  *own* machine are ignored, since the dot is already saying it.
+- **`NOTIFY_NTFY_URL`** pushes to your phone. `NOTIFY_PUSHOVER_TOKEN` +
+  `NOTIFY_PUSHOVER_USER` do the same via Pushover.
+
+**No config file means none of this happens** — no marker, no network call, no change in
+behaviour. That's deliberate: this script runs on every prompt of every session.
+
+**On ntfy topics:** a topic on the public `ntfy.sh` is readable by anyone who knows or
+guesses its name. Use a long random one, self-host, or use Pushover, which is
+account-based. The default push body is thin on purpose — hostname and repo name only.
+`NOTIFY_DETAIL=1` adds the working directory and the prompt text, which is real content
+leaving your machine.
+
+**What this catches, and what it doesn't.** The `Notification` hook fires when Claude Code
+*asks* — a question or a permission prompt. A session that stops some other way (an error
+ending the turn, a crash, a killed terminal) never writes `waiting`, so you'd see green or
+a marker aging out under `M.remoteAlertMaxAgeHours`, not red. This is a "stopped and
+waiting on you" alarm, **not** a general "the job isn't running" alarm — that would need a
+heartbeat, which is a different mechanism.
 
 ## The git status dot
 

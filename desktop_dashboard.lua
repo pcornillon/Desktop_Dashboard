@@ -65,7 +65,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v46 (name both ways to read the unread Desktops, 2026-08-01)"
+M.version = "v50 (legend buttons; alerts from another Mac; quote restore paths, 2026-08-03)"
 
 -- ============================ CONFIG ============================
 
@@ -393,6 +393,17 @@ M.scanHotkey      = { mods = {"cmd","ctrl","alt"}, key = "s" }
 -- down as Desktops are read and disappears when none are left.
 M.showStaleHint = true
 
+-- Alerts from ANOTHER Mac — a session there is blocked on a question. Written by
+-- claude-dashboard-state.sh at the instant it happens, into a synced folder.
+-- Nothing here is on by default beyond reading the folder: if the folder does
+-- not exist, this costs one failed directory read every remoteAlertSeconds.
+M.showRemoteAlerts       = true
+M.remoteAlertDir         = (os.getenv("HOME") or "") .. "/Dropbox/claude/dashboard_alerts"
+M.remoteAlertSeconds     = 20     -- backstop; a path watcher catches it sooner
+M.remoteAlertMaxAgeHours = 12     -- same bound as the local hook files
+M.remoteAlertNotify      = true   -- post a macOS notification for a NEW marker
+M.remoteAlertColor       = { red = 1, green = 0.45, blue = 0.45, alpha = 1 }
+
 -- Command legend shown at the bottom of the panel. Set showLegend=false to
 -- hide it; edit legendLines if you remap the hotkeys above.
 M.showLegend  = true
@@ -401,8 +412,36 @@ M.showLegend  = true
 M.legendLines = {
   "⌘⌃⌥  s scan · d hide · n name",
   "     r restore · m mode · g GitHub",
-  "click a line to switch Desktops",
+  "click a line, or a blue word",
 }
+
+-- Words IN the legend that are themselves click targets. The legend is the only
+-- place the hotkeys are named, and over a remote session (VNC, Screen Sharing)
+-- the hotkey is precisely what you cannot send — ⌘⌃⌥ is eaten by the local
+-- machine, so the panel is readable but every command on it is unreachable.
+-- The word is the fallback, and it costs no panel width because it is text that
+-- is already there. Key is the literal substring to find in a legend line; value
+-- is the element id `activateElement` routes on.
+--
+-- `d hide` is deliberately NOT here. Unhiding is the same hotkey, so on the one
+-- machine that cannot press it a clickable "hide" is a one-way door.
+--
+-- `scan` routes to the id the stale-count line already uses, so both paths to
+-- ⌘⌃⌥S stay one branch.
+-- `r restore` is deliberately not here either, for a different reason than
+-- `hide`: it MOVES AND OPENS WINDOWS across every Desktop. It is the most
+-- disruptive thing the panel can do and the hardest to undo — there is no
+-- inverse — so it stays behind a deliberate two-hand keypress rather than
+-- sitting one stray click away from the words next to it. Asked for 2026-08-03.
+M.legendClicks = {
+  scan   = "rescan",
+  name   = "name",
+  mode   = "mode",
+  GitHub = "github",
+}
+-- Blue, and named as blue on the third legend line. Not magenta: that already
+-- means "the Desktop you are standing on" and a second meaning would dilute it.
+M.legendClickColor = { red = 0.45, green = 0.75, blue = 1.00, alpha = 1 }
 
 -- ===============================================================
 
@@ -464,6 +503,19 @@ end
 local function uwidth(s) return (utf8 and utf8.len and utf8.len(s)) or #s end
 -- One monospaced character's width, the unit the panel is sized in.
 local function charWidth() return (M.fontSize or 13) * 0.62 end
+
+-- Width of a run of legend text, MEASURED rather than counted. The legend mixes
+-- ⌘⌃⌥ and · with ASCII, and the rule that placed the active marker applies here
+-- too: do not assume a glyph is one cell wide because the font is monospaced.
+-- This positions a click target over one word of an already-drawn line, so an
+-- error of a few px puts the target off the word. Falls back to a count.
+local function legendFont() return { name = "Menlo", size = math.max(1, (M.fontSize or 13) - 2) } end
+local function legendWidth(s)
+  if s == "" then return 0 end
+  local ok, sz = pcall(hs.drawing.getTextDrawingSize, hs.styledtext.new(s, { font = legendFont() }))
+  if ok and type(sz) == "table" and sz.w then return sz.w end
+  return uwidth(s) * ((M.fontSize or 13) - 2) * 0.62
+end
 -- Icon edge and the gap after it, in px.
 local function iconMetrics()
   return math.max(8, (M.fontSize or 13) + (M.appIconBump or 3)), (M.appIconGap or 3)
@@ -795,6 +847,115 @@ local function refreshGitStates()
     if gitDotKey() ~= before then pcall(draw) end
   end, { "-c", script })
   if ok and t then gitTask = t; t:start() end
+end
+
+-- ---- remote alerts: a session on ANOTHER Mac is blocked on you -------------
+--
+-- The claude dot answers "which Desktop wants me" for the machine you are
+-- sitting at. It cannot answer it for a Mac in another building, which is the
+-- case that actually costs time: a session stops for a permission prompt at
+-- 09:00 and is found still sitting there at 11:00.
+--
+-- claude-dashboard-state.sh already fires at exactly that instant, so it drops a
+-- marker into a shared folder; this reads them. Deliberately a DIFFERENT
+-- mechanism from the ssh replica: no VPN, no reachability, no live connection —
+-- the marker is a fact that was true when it was written, and a file that syncs
+-- is enough to carry it.
+--
+-- Markers from THIS host are ignored: the red dot is already saying it, on the
+-- screen in front of you.
+local remoteAlerts   = {}     -- { {host=, repo=, at=, key=}, ... } newest first
+local remoteSeen     = {}     -- key -> true, so a marker notifies once
+local remotePrimed   = false  -- first read never notifies; see below
+-- remoteDebounce is held in a file-scope local for the reason CLAUDE.md records:
+-- an hs.timer with nothing referencing it can be collected before it fires.
+local remoteWatcher, remoteTimer, remoteDebounce, localHostName
+
+-- Parsed markers, keyed by name and mtime. Two reasons, and the second is the
+-- one that forced it: a file being synced can be read mid-write, and every
+-- failed parse writes a LuaSkin error to the Hammerspoon console — on a timer,
+-- forever, for one bad file. Caching the FAILURE too means it is logged once
+-- per version of the file rather than once per read. (Measured while testing:
+-- a deliberately malformed marker logged on every pass.)
+local remoteParse = {}      -- "name\0mtime" -> table | false
+
+local function readMarker(dir, f)
+  local at = hs.fs.attributes(dir .. "/" .. f)
+  local key = f .. "\0" .. tostring(at and at.modification or 0)
+  local hit = remoteParse[key]
+  if hit ~= nil then return hit or nil end
+  local t = hs.json.read(dir .. "/" .. f)
+  remoteParse[key] = (type(t) == "table") and t or false
+  return (type(t) == "table") and t or nil
+end
+
+local function readRemoteAlerts()
+  local dir = M.remoteAlertDir
+  if not (M.showRemoteAlerts and dir) then remoteAlerts = {}; return end
+  local fresh, now = {}, os.time()
+  local maxAge = (M.remoteAlertMaxAgeHours or 12) * 3600
+  local seenKeys = {}
+  local ok = pcall(function()
+    for f in hs.fs.dir(dir) do
+      if f:sub(-5) == ".json" then
+        seenKeys[f] = true
+        local t = readMarker(dir, f)
+        -- A session killed without SessionEnd leaves its marker behind, and a
+        -- stale one would pin an alert forever — the same guard the hook state
+        -- files carry, for the same reason.
+        if type(t) == "table" and t.repo and (now - (tonumber(t.at) or 0)) < maxAge then
+          if not (localHostName and t.host == localHostName) then
+            fresh[#fresh + 1] = { host = t.host or "?", repo = t.repo,
+                                  at = tonumber(t.at) or 0, key = f }
+          end
+        end
+      end
+    end
+  end)
+  if not ok then return end        -- folder missing / mid-sync: keep what we had
+  -- Drop cache entries for files that are gone, so a long-lived Hammerspoon
+  -- doesn't accumulate one entry per marker per edit for the rest of the login.
+  for k in pairs(remoteParse) do
+    if not seenKeys[k:match("^(.-)%z") or ""] then remoteParse[k] = nil end
+  end
+  table.sort(fresh, function(a, b) return a.at > b.at end)
+  remoteAlerts = fresh
+end
+
+-- A macOS notification for each marker not seen before. The first read after
+-- launch only PRIMES the seen-set: markers already sitting in the folder are
+-- history, and announcing them at every login is how a signal becomes noise —
+-- the same reason sessions already idle at launch never get a green dot.
+local function noteRemoteAlerts()
+  local present = {}
+  for _, a in ipairs(remoteAlerts) do present[a.key] = true end
+  if remotePrimed and M.remoteAlertNotify ~= false then
+    for _, a in ipairs(remoteAlerts) do
+      if not remoteSeen[a.key] then
+        pcall(function()
+          hs.notify.new({ title = "Claude waiting — " .. a.repo,
+                          subTitle = a.host,
+                          informativeText = "A session is blocked on a question.",
+                          withdrawAfter = 0 }):send()
+        end)
+      end
+    end
+  end
+  remotePrimed = true
+  -- Forget cleared markers, so the same repo blocking again notifies again.
+  for k in pairs(remoteSeen) do if not present[k] then remoteSeen[k] = nil end end
+  for k in pairs(present) do remoteSeen[k] = true end
+end
+
+local function refreshRemoteAlerts()
+  local before = #remoteAlerts
+  local beforeKey = remoteAlerts[1] and remoteAlerts[1].key or ""
+  readRemoteAlerts()
+  noteRemoteAlerts()
+  -- draw() rebuilds every canvas, so only redraw when the line would change.
+  if #remoteAlerts ~= before or (remoteAlerts[1] and remoteAlerts[1].key or "") ~= beforeKey then
+    pcall(draw)
+  end
 end
 
 local function categorize(app)
@@ -1894,6 +2055,14 @@ local function activateElement(elementId)
   if type(elementId) ~= "string" then return end
   if elementId == "resize" then return end   -- a click on the grip resizes nothing
   if elementId == "rescan" then pcall(M.scanAll); return end
+  -- A legend word acting as its own button (M.legendClicks). This is what makes
+  -- the panel usable over VNC, where ⌘⌃⌥ never reaches this machine. Each one is
+  -- the hotkey's own handler, so there is no second code path to keep in step.
+  -- No "restore" branch on purpose: M.restoreLayout moves and opens windows
+  -- across every Desktop and has no inverse, so it stays hotkey-only.
+  if elementId == "github"  then pcall(M.scanGitHub);    return end
+  if elementId == "name"    then pcall(M.nameCurrent);   return end
+  if elementId == "mode"    then pcall(M.cycleMode);     return end
   -- An icon: go to the Desktop AND raise that app's window. Clicking the line
   -- itself deliberately does not — arriving on a Desktop should normally leave
   -- it as you left it; picking an icon is the way to say which window you want.
@@ -2121,6 +2290,22 @@ draw = function()
       maxChars = math.max(maxChars, uwidth(staleText))
     end
   end
+  -- A session on another Mac is blocked on you. Above the stale line and never
+  -- suppressed by it: this is the only thing on the panel that reports something
+  -- happening somewhere you cannot see, so it must not lose a race to a hint
+  -- about local freshness.
+  local alertText
+  if #remoteAlerts > 0 then
+    local a = remoteAlerts[1]
+    if #remoteAlerts == 1 then
+      alertText = string.format("%s · %s is waiting on you", a.host, a.repo)
+    else
+      alertText = string.format("%s · %s +%d more waiting on you",
+        a.host, a.repo, #remoteAlerts - 1)
+    end
+    maxChars = math.max(maxChars, uwidth(alertText))
+  end
+
   local legendLines = (M.showLegend and M.legendLines) or {}
   for _, ln in ipairs(legendLines) do maxChars = math.max(maxChars, uwidth(ln)) end
 
@@ -2129,6 +2314,7 @@ draw = function()
   local charW   = charWidth()
   local statusH = hasStatus and (lineH + 9) or 0
   local staleH  = staleText and (lineH + 9) or 0
+  local alertH  = alertText and (lineH + 9) or 0
   local legendH = (#legendLines > 0) and (10 + #legendLines * (M.fontSize + 3)) or 0
   -- The grip sits in the bottom-right corner, past the end of the legend, so
   -- unlike the buttons it replaced it needs no width reserved for it.
@@ -2139,7 +2325,7 @@ draw = function()
   local bodyW   = math.max(minW - pad * 2, math.ceil(maxChars * charW) + 6 + zoomW)
   local panelW  = math.min(maxW, bodyW + pad * 2)
   local panelH  = pad * 2 + totalRows * lineH + math.max(0, #blocks - 1) * M.sectionGap
-                  + statusH + staleH + legendH
+                  + statusH + staleH + alertH + legendH
 
   -- Which displays get a panel. The content above still describes every screen,
   -- so hiding one display's panel does not remove its Desktops from the list.
@@ -2322,6 +2508,21 @@ draw = function()
       cy = cy + staleH
     end
 
+    if alertText then
+      cv:appendElements({
+        type = "rectangle", action = "fill",
+        fillColor = { white = 1, alpha = 0.16 },
+        frame = { x = pad, y = cy + 4, w = panelW - pad * 2, h = 1 },
+      })
+      cv:appendElements({
+        type = "text", text = alertText,
+        textFont = "Menlo", textSize = M.fontSize - 1,
+        textColor = M.remoteAlertColor or { red = 1, green = 0.45, blue = 0.45, alpha = 1 },
+        frame = { x = pad, y = cy + 9, w = panelW - pad * 2, h = lineH },
+      })
+      cy = cy + alertH
+    end
+
     if #legendLines > 0 then
       cv:appendElements({
         type = "rectangle", action = "fill",
@@ -2329,14 +2530,43 @@ draw = function()
         frame = { x = pad, y = cy + 4, w = panelW - pad * 2, h = 1 },
       })
       local ly = cy + 9
+      local lineH2 = M.fontSize + 3
       for _, ln in ipairs(legendLines) do
         cv:appendElements({
           type = "text", text = ln,
           textFont = "Menlo", textSize = M.fontSize - 2,
           textColor = { white = 0.6, alpha = 1 },
-          frame = { x = pad, y = ly, w = panelW - pad * 2, h = M.fontSize + 3 },
+          frame = { x = pad, y = ly, w = panelW - pad * 2, h = lineH2 },
         })
-        ly = ly + (M.fontSize + 3)
+        -- Any clickable word in this line is drawn a SECOND time, in blue, over
+        -- the gray one, with a transparent tracked rectangle on top to own the
+        -- click. Overdrawing rather than splitting the line into runs keeps the
+        -- line's own layout untouched — it is the same string at the same x, so
+        -- nothing shifts if legendClicks is empty or a word isn't found.
+        for word, elemId in pairs(M.legendClicks or {}) do
+          local at = ln:find(word, 1, true)
+          if at then
+            local wx = pad + legendWidth(ln:sub(1, at - 1))
+            local ww = legendWidth(word)
+            cv:appendElements({
+              type = "text", text = word,
+              textFont = "Menlo", textSize = M.fontSize - 2,
+              textColor = M.legendClickColor or { red = 0.45, green = 0.75, blue = 1, alpha = 1 },
+              frame = { x = wx, y = ly, w = ww + 4, h = lineH2 },
+            })
+            -- Same reason every icon carries one: a canvas text element is not a
+            -- reliable mouse target, and a fully transparent rectangle still
+            -- hit-tests. trackMouseDown too, so a drag begun here still moves
+            -- the panel instead of dead-ending on the word.
+            cv:appendElements({
+              type = "rectangle", action = "fill",
+              fillColor = { white = 1, alpha = 0 },
+              frame = { x = wx - 2, y = ly, w = ww + 6, h = lineH2 },
+              trackMouseUp = true, trackMouseDown = true, id = elemId,
+            })
+          end
+        end
+        ly = ly + lineH2
       end
     end
 
@@ -2664,7 +2894,12 @@ function M.restoreLayout()
     ci = ci + 1
     local item = toCreate[ci]
     if not item then hs.timer.doAfter(0.6, M.refresh); return end
-    pcall(hs.execute, "open -a '" .. item.app .. "' '" .. item.doc .. "'", true)
+    -- shQuote, not bare '…'. A document path containing an apostrophe —
+    -- "Peter's notes.md" — closed the quote early and made the whole command a
+    -- shell SYNTAX ERROR, so that file silently failed to open and every later
+    -- word was reinterpreted. Verified 2026-08-03: the old form dies with
+    -- "unexpected EOF while looking for matching `''", the quoted form works.
+    pcall(hs.execute, "open -a " .. shQuote(item.app) .. " " .. shQuote(item.doc), true)
     hs.timer.doAfter(1.5, function()
       local win = findVisibleWindow(item.app, item.doc)
       if win then pcall(hs.spaces.moveWindowToSpace, win, item.sid) end
@@ -2678,6 +2913,16 @@ function M.start()
   loadRepos()
   restoreNames()
   M.visible = true
+
+  -- Our own LocalHostName, so markers written by THIS Mac are ignored — the red
+  -- dot is already showing them. `hostname` is not usable here: on the laptop it
+  -- returns a VPN DHCP name. Read once, asynchronously; until it arrives the
+  -- filter simply doesn't apply, which shows one redundant alert at worst.
+  local okh, th = pcall(hs.task.new, "/usr/sbin/scutil", function(_, out, _)
+    localHostName = tostring(out or ""):gsub("%s+$", "")
+    if localHostName == "" then localHostName = nil end
+  end, { "--get", "LocalHostName" })
+  if okh and th then th:start() end
   draw()                         -- show restored names instantly, no scanning yet
   -- Defer the first read so config load always finishes and the menubar stays
   -- responsive (you can always Reload Config even if a read later misbehaves).
@@ -2698,6 +2943,22 @@ function M.start()
   -- The git dot has its own, slower timer: it is offline and cheap, but there is
   -- no reason to re-read it as often as the claude spinner.
   gitTimer      = hs.timer.doEvery(M.gitDotSeconds, refreshGitStates)
+
+  -- Remote alerts: a path watcher fires within a second of Dropbox landing the
+  -- file, and a slow timer is the backstop for the case where it doesn't (a
+  -- sync client that swaps the directory can leave the watcher pointed at a
+  -- vanished inode). Both are cheap — one directory read of a folder that is
+  -- empty almost all the time.
+  if M.showRemoteAlerts and M.remoteAlertDir then
+    remoteTimer = hs.timer.doEvery(M.remoteAlertSeconds or 20, refreshRemoteAlerts)
+    local okw, w = pcall(hs.pathwatcher.new, M.remoteAlertDir, function()
+      -- Coalesce: a sync writes a file in more than one step and would
+      -- otherwise fire this several times for one marker.
+      remoteDebounce = hs.timer.doAfter(0.5, refreshRemoteAlerts)
+    end)
+    if okw and w then remoteWatcher = w; pcall(function() w:start() end) end
+    hs.timer.doAfter(2.0, refreshRemoteAlerts)   -- primes the seen-set
+  end
   autosaveTimer = hs.timer.doEvery(M.autosaveMinutes * 60, M.saveLayout)
   hs.shutdownCallback = function() pcall(M.saveLayout) end
 
@@ -2722,6 +2983,9 @@ function M.stop()
   if refreshTimer  then refreshTimer:stop() end
   if claudeTimer   then claudeTimer:stop() end
   if gitTimer      then gitTimer:stop() end
+  if remoteTimer   then remoteTimer:stop(); remoteTimer = nil end
+  if remoteDebounce then remoteDebounce:stop(); remoteDebounce = nil end
+  if remoteWatcher then pcall(function() remoteWatcher:stop() end); remoteWatcher = nil end
   if ghWatchdog    then ghWatchdog:stop(); ghWatchdog = nil end
   if ghTask        then pcall(function() ghTask:terminate() end); ghTask = nil end
   if ghWebview     then pcall(function() ghWebview:delete() end); ghWebview = nil end

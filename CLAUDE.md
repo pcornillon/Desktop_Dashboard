@@ -402,6 +402,65 @@ claude session (terminals), and everything else contributes normally.
   same thing more precisely. Asking rather than scanning automatically is deliberate: a
   ⌘⌃⌥S walk takes over both displays for ~25 s, which is not something to do to someone
   unprompted every time they reload.
+- **A legend word is a button, because a hotkey is the one thing a remote session can't
+  send.** Reported 2026-08-03: working from home over VNC on the office Mac, the panel is
+  perfectly readable but ⌘⌃⌥ is swallowed by the local machine, so every command named on
+  it is unreachable — "of marginal use" was the verdict. `M.legendClicks` maps a literal
+  substring of a legend line to an element id `activateElement` routes on; `GitHub` is the
+  first. The word is overdrawn in blue on top of the gray line rather than the line being
+  split into styled runs, so the line's own layout is untouched and an empty
+  `legendClicks` changes nothing. Costs **zero panel width** — the legend is the widest
+  thing in the panel in Desktops mode, so an appended "or click here" would have widened
+  the whole panel by ~13 characters to say what the color already says. The third legend
+  line names the affordance instead ("click a line, or a blue word"), one character
+  shorter than the line it replaced.
+  - **Blue, not magenta.** Magenta already means "the Desktop you are standing on"; a
+    second meaning would dilute the one cue that survives in a list of a dozen lines.
+  - **Two words are deliberately not clickable, for different reasons.** `hide` is a
+    one-way door: unhiding is the same hotkey, so on the one machine that cannot press it
+    there is no way back. `restore` is the opposite problem — it is not unreachable, it is
+    too reachable: `M.restoreLayout` moves and opens windows across every Desktop and has
+    no inverse, which is not something that should sit one stray click from `mode` and
+    `name`. Asked for and removed 2026-08-03, having been wired the day it was written.
+  - **The word is positioned by measuring, never by counting characters.** Measured
+    2026-08-03 in Menlo 11 (`fontSize - 2`): the prefix before `GitHub` measures 185.43 px
+    where a character count gives 190.96 — a 5.5 px error against a 6.62 px cell, so the
+    blue word would have landed most of a character right of the gray one it covers.
+    `legendWidth()` composes exactly (185.43 + 39.74 = 225.17, the full line), so the
+    overdraw registers. Same rule as the active marker and the icon row; this is the third
+    time counting characters in a "monospaced" line has been wrong.
+- **The alert that has to leave the machine is raised by the hook, not by the panel.**
+  Asked 2026-08-03: sessions on the office iMac sat blocked on a permission prompt for
+  hours because the red dot was on a screen in Rhode Island. The panel cannot fix this —
+  it renders state for the machine it runs on. `claude-dashboard-state.sh` already fires
+  at precisely the instant the answer becomes known, so the alert belongs there.
+  - **Two channels, one trigger.** On the `waiting` that survives the nudge filter, the
+    hook optionally drops a marker into a synced folder (`NOTIFY_DROPBOX`) and optionally
+    pushes to a phone (`NOTIFY_NTFY_URL` / Pushover). Any other state clears the marker,
+    so answering the question retracts the alert without the receiving machine having to
+    decide when one is stale.
+  - **Deliberately NOT the ssh replica.** A marker is a fact that was true when written;
+    carrying it needs no VPN, no reachability, and no live connection, and it works when
+    the laptop was asleep at the moment it happened. The replica is for browsing live
+    state; this is for being told. They are different jobs and share no code.
+  - **Absent config means absent behaviour.** No `~/.claude/dashboard-notify.conf` → no
+    marker, no network call. This script runs on every prompt of every session, so the
+    default has to be that it does nothing new. The network calls are backgrounded with
+    `curl -m 8` for the reason the header already states: a hook that blocks holds up the
+    session it exists to observe.
+  - **An idle-time gate was considered and rejected.** Suppressing the push when someone
+    is actively using the machine sounds right and is exactly backwards here: VNC input
+    registers as local HID input, so `HIDIdleTime` would be low precisely when the user is
+    driving the iMac from home — suppressing the alert in the case it was built for.
+    A per-machine config file is predictable; an inferred one is not.
+  - **The first read after launch only primes the seen-set.** Markers already in the folder
+    are history, and announcing them at every login is how a signal becomes noise — the
+    same reasoning that stops sessions already idle at launch from getting a green dot.
+  - **Marker parses are cached by name+mtime, including the FAILURES.** A file read
+    mid-sync fails to parse, and every failure writes a LuaSkin error to the Hammerspoon
+    console — on a timer, forever, for one bad file. Observed while testing this: a
+    malformed marker logged on every pass; with the cache it logs once per version of the
+    file. Verified the cache holds: 5 reads on the first pass, 0 on the second and third.
 - **A line is a NAME and an ICON ROW, and they answer different questions.** The name says
   what the Desktop is *for*; the icons say what is *on* it. Because they are independent,
   ⌘⌃⌥N replaces the name and leaves the icons alone — renaming a Desktop cannot change
