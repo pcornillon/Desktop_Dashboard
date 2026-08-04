@@ -978,9 +978,10 @@ change tense to stand alone.
   once he saw it work. **D7 is effectively restored** — it removed Finder from the repo hint
   in the first place, on a measurement from 2026-07-28. D5's `docApps` allowlist is now
   load-bearing in a second way: it is exactly the set of apps that can name a Desktop.
-- **Live tension:** the evidence is *any* document under a repo root, not only a `.md`. A
-  repo PDF open in Preview, or a spreadsheet in Excel, names the Desktop exactly as
-  `CLAUDE.md` does. Peter asked for "md file"; this is the looser reading, and narrowing it
-  is one condition in `projectOfWindow`.
+- **Any document, not only a `.md` — confirmed 2026-08-04.** Peter asked for "md file"; the
+  looser reading was implemented and put back to him, and he confirmed it. A repo PDF open
+  in Preview, a `.tex`, a `.m` or a spreadsheet all name the Desktop exactly as `CLAUDE.md`
+  does, because they are the same evidence: a document from that project, open here. **Do
+  not narrow this to an extension** without asking — it was considered and rejected.
 - **Where:** `M.sessionColor`, `projectOfWindow`, `detectLabel`, `readSpaceFrom`,
   `screenEntries` — `v52`.

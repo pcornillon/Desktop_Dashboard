@@ -266,6 +266,6 @@ their dots; the five named by an open document draw white with none; the Desktop
 to be named by a title guess now show their icon rows instead. `v51` → **`v52`**, console
 clean.
 
-**Open, and one condition away:** the evidence is any document under a repo root, not only
-`.md`. A repo PDF in Preview or a spreadsheet in Excel names a Desktop exactly as
-`CLAUDE.md` does — see D75's live tension.
+**Settled 2026-08-04:** the evidence is any document under a repo root, not only `.md` —
+put back to Peter and confirmed. A repo PDF in Preview, a `.tex` or a spreadsheet is the
+same evidence as a `CLAUDE.md`: a document from that project, open here.

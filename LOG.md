@@ -110,3 +110,7 @@ invented index is worse than a short one.
     Claude, ChatGPT, six browsers, Finder and terminals** — Mail, Slack, OneNote, MATLAB,
     Messages. Verified by rendering: five Desktops teal with dots, five white from documents,
     the title-guessed ones now showing icons
+- **P10** `1231_satdat1` · 2026-08-04 15:32 EDT · "leave it as any document"
+  → confirms D75's one open point; **no code change** — that is what `v52` already does.
+    D75's live tension replaced with the settled ruling and a "do not narrow this without
+    asking" note; Task #7's open line closed
