@@ -1,0 +1,708 @@
+# DECISIONS.md — Desktop Dashboard
+
+Numbered, appended, never renumbered. Cite them by number from `TASKS.md`,
+`STATUS.md`, `LOG.md` and from comments in `desktop_dashboard.lua`.
+
+**Every entry here was lifted verbatim-in-substance out of `CLAUDE.md`'s "Key decisions
+and why" section on 2026-08-03**, when this repo was migrated onto the project spine
+(`claude-config` Task #11 / #19). They had accumulated there for want of a
+`DECISIONS.md`. **The measurements are the point** — the millisecond costs, the sample
+counts, the observation dates — and they are carried across unchanged. Where a date
+appears it is the date the thing was measured or observed, not the date it was written
+down here.
+
+Nothing in this file is new. No decision was added, dropped, softened or re-litigated
+during the migration.
+
+---
+
+## Platform and runtime
+
+### D1. Draw an overlay; do not try to rename the Space
+- **Decision:** draw an always-on `hs.canvas` panel listing the Desktops, rather than
+  changing a Space's Mission Control label.
+- **Why:** macOS exposes no supported API for renaming a Space. `spaces-renamer` did it
+  by injecting into the Dock, which needs SIP disabled — a Recovery-Mode reboot and a
+  standing security downgrade — and is reported broken on Apple Silicon and macOS 14.4+.
+  **Re-checked 2026-08-02 and the original form of this entry is now wrong:** SpaceJump
+  claims to put custom names *inside* Mission Control on Apple Silicon **without** SIP
+  changes, by drawing overlay windows rather than injecting. That is vendor copy, not
+  measured here, but it is enough that "the only way is SIP-off" can no longer be
+  stated. What has not changed is the part that actually decided this project: neither
+  tool offers a scripting hook, and **naming was never the point** — the panel exists to
+  report live session, git and window state, which no renamer does.
+- **Where:** the whole of `draw()`; `README.md` "Why an overlay".
+- **Consequence:** the name shows in our panel, not in the Mission Control thumbnail.
+- **Live tension:** if a future rewrite does want names in the thumbnail, SpaceJump's
+  approach — overlay windows positioned over Mission Control — is the lead worth
+  following.
+
+### D2. Hammerspoon as the runtime
+- **Decision:** build on Hammerspoon.
+- **Why:** free, notarized, needs no SIP change, and exposes `hs.spaces`, `hs.window`,
+  `hs.canvas` and both space and window watchers — everything required.
+- **Where:** everything.
+
+### D3. Read a Desktop only while it is active; never reintroduce passive reads
+- **Decision:** detection reads only the visible Space(s); ⌘⌃⌥s walks all Spaces to fill
+  in the rest.
+- **Why:** macOS Accessibility cannot read the windows of a Space you are not viewing.
+  **Passive "read every Space without visiting" was tried and does not work without
+  SIP-off.**
+- **Where:** `scanActive()`, `M.scanAll()`.
+- **Do not re-attempt.** This is a negative result, not an unexplored option.
+
+### D4. One `allWindows()` snapshot per read; never `hs.window.get()` per id
+- **Decision:** `snapshot()` calls `hs.window.allWindows()` **once** and indexes by
+  window id; per-Desktop reads are hash lookups.
+- **Why:** **THE performance fix.** `hs.window.get(id)` rebuilds the entire window list
+  on every call — **~40 ms each, measured** — so per-window calls multiplied into
+  multi-minute freezes.
+- **Where:** `snapshot()`, `readSpaceFrom()`.
+- **Constraint on future work:** if you touch the read path, keep it to one enumeration
+  per read. The one sanctioned exception is D56 (a single click can afford it).
+
+### D5. Only ask `docApps` for a file path
+- **Decision:** an allowlist (`M.docApps`) restricts the `AXDocument` read to real
+  editors — MacDown, VS Code, CLion, Preview and the like. Everything else is labeled by
+  name only.
+- **Why:** reading `AXDocument` from Electron/Office/Java apps (Slack, OneNote, Teams,
+  MATLAB, …) **can stall for minutes**.
+- **Where:** `M.docApps`, rule 1 of `detectLabel`.
+- **Do not add slow apps to `docApps`.** See D30 for the cost this allowlist imposes on
+  the pull precheck, and why TeXShop was still left off it.
+
+---
+
+## Label detection
+
+### D6. Finder and Terminal never decide a Desktop's subject
+- **Decision:** neither appears in `funcs`.
+- **Why:** a Desktop's *subject* is never "Finder" or "Terminal".
+- **Where:** `M.ignoreApps`, `detectLabel`.
+
+### D7. Finder contributes no repo hint; a terminal does only while running claude
+- **Decision:** reverse the original rule, which fed both their titles to the repo hint.
+- **Why:** the original theory was that a window "sitting in a repo" names which repo the
+  Desktop is for. In practice it named the **wrong** one: a Finder window is the folder
+  you happen to be *browsing*, and a shell is wherever you last `cd`'d. **Observed
+  2026-07-28** — a Desktop holding MATLAB, some `-zsh` windows and one Finder window
+  parked in `Desktop_Dashboard` was labeled `Desktop_Dashboard`, while the actual work on
+  it was MATLAB. A terminal running `claude` is different in kind: that is a session
+  someone is working in, and it remains the strongest signal available.
+- **Where:** `M.claudeOnlyHintApps`, `M.claudeTitleMarker`, checked against the window
+  title.
+
+### D8. A title names a location or a subject, and only the first is a repo hint
+- **Decision:** `M.noRepoHintApps` withholds an app's title from `ctx` by app, not by
+  text.
+- **Why:** a Terminal running `claude` puts the *working directory* in its title — that
+  really does say which repo the Desktop is for. A browser puts a *page title*
+  (`pcornillon/Desktop_Dashboard · GitHub`) and a chat app puts a *conversation name*;
+  both can contain a repo name purely as subject matter. Rule 2 cannot tell those apart
+  on text alone, so the line is drawn by app.
+- **Where:** `M.noRepoHintApps`.
+- **Note:** members still count toward the subject, unlike `M.ignoreApps`. Only their
+  titles are withheld.
+
+### D9. Rule 2 matches a repo name anywhere in a title — accepted, not fixed
+- **Decision:** accept that rule 2 will match a repo name inside a filename that is not
+  in the repo. Do not tighten it by pattern-matching the title harder.
+- **Why:** **measured case** — two windows open in TeXShop titled
+  `desktop_dashboard_17.lua` / `_18.lua`, **both files sitting in `~/.Trash`**, kept
+  relabeling their Desktop `Desktop_Dashboard`. Nothing in the title text distinguishes
+  "a file belonging to this repo" from "a file whose name resembles this repo", and the
+  editor was not in `docApps`, so no real path was available to check.
+- **Where:** rule 2 of `detectLabel`.
+- **If you tighten this, do it with a path (rule 1), not with a better pattern.** Until
+  then, a mixed Desktop like that is what ⌘⌃⌥n manual naming is for.
+
+### D10. `M.appLabels` renames the single-app case only
+- **Decision:** an override table that renames the bare process name when one app owns
+  the Desktop — `Claude` → `Claude Chat/Cowork`.
+- **Why:** rule 4 returns the bare process name, which makes `Claude` ambiguous with
+  `claude` in a terminal. Categories cannot do this: a category is only shown when it
+  groups two or more apps.
+- **Where:** `M.appLabels`.
+- **Scope, easily misread:** it applies *only* when a single app is present. A Desktop
+  that also holds an editor and Stickies resolves to `Utility` by rule 4 long before
+  `appLabels` is consulted. See also D40 — with icons on, `appLabels` shows only when
+  icons are off or unavailable.
+
+### D11. Re-list the repo roots on a timer
+- **Decision:** `refreshRepos()` re-lists on an `M.repoRescanSeconds` TTL from
+  `scanActive()`; ⌘⌃⌥s always reloads.
+- **Why:** `loadRepos()` originally ran once in `start()`, so a repo created after
+  Hammerspoon loaded its config was invisible to rules 2 and 3 until the next Reload
+  Config — the Desktop showed `—` or a bare app name however clearly its titles named the
+  repo.
+- **Cost, and why it is acceptable:** a directory listing plus a stat per entry is
+  negligible next to the `allWindows()` call each read already pays (D4).
+
+### D12. Compare repo paths case-insensitively
+- **Decision:** compare case-insensitively, and slice the repo segment off the
+  **original** path so its true casing survives.
+- **Why:** macOS volumes are normally case-insensitive, so a `repoRoots` entry of
+  `~/Git_repos` lists `~/Git_Repos` happily via `hs.fs.dir` but **never prefix-matches
+  the real `AXDocument` path** — rule 1 fails silently while the repo list looks fine.
+- **Where:** rule 1 of `detectLabel`.
+
+### D13. A live session outranks any repo name found in prose, and its task summary never feeds the hint
+- **Decision:** the session cwd becomes **rule 1.5**, ahead of both text rules; a
+  terminal contributes only its cwd to `ctx`, never its task summary.
+- **Why:** **observed 2026-07-29** — a session in `~` whose summary read "Establish
+  consistent config structure for Claude projects" shares the tokens *claude* and
+  *config* with the repo `claude-config`, so rule 3 relabeled that Desktop
+  `claude-config`, **and the real session lost its dot**, since the state is keyed by
+  cwd. Where a session is running is a *fact* about the Desktop; a mentioned repo name is
+  not.
+- **This was the fourth false positive from matching repo names inside free text** —
+  Trash filenames (D9), browser page titles, chat conversation names, now task summaries.
+  **Prefer a fact over a string match every time.**
+
+### D14. A claude session's working directory labels its Desktop, repo or not
+- **Decision:** rule 3.5 — if a terminal on the Desktop is running claude, its cwd
+  becomes the label when no repo matched.
+- **Why:** before this, `claude` started in `~` left the Desktop reading `—` (Terminal is
+  ignored for the subject per D6, and the cwd matched no repo), so it could never carry a
+  dot either. **Reported 2026-07-29.** The dot's repo-membership test went with it: the
+  key already has to match a live session's cwd, and a session in `~` is as real as one
+  in a repo.
+- **Safe by construction:** it fires only when no repo matched, so nothing that
+  previously worked changes.
+
+### D15. Single app → the app's name; a shared subject → the category
+- **Decision:** one app owning a Desktop yields that app's own name; two or more apps
+  sharing a subject yield the subject; two or more subjects yield `Utility`.
+- **Why:** a category should only appear when it is actually grouping more than one app.
+  `Mail` alone is `Mail`; `Mail` + `Slack` is `Communication`.
+- **Where:** rule 4 of `detectLabel`, `M.categories` / `M.categoryPatterns`.
+
+### D16. Manual names are overrides, kept two ways
+- **Decision:** ⌘⌃⌥n sets a name that wins over auto-detection; blank clears it. Kept by
+  **Space ID** in-session and by **screen + position** on disk.
+- **Why:** the two keys answer two different failure modes — reordering Desktops should
+  move names with their Space, and Space IDs do not survive a reboot.
+- **Where:** `overrides`, `M.saveLayout()`, `restoreNames()`.
+
+---
+
+## The claude session dot
+
+### D17. The claude dot has two colours because the title carries only two states
+- **Decision:** yellow (working) and green (finished-and-unseen). **There is no red dot
+  derived from the title.**
+- **Why:** Claude Code puts an animated Braille spinner (U+2800–U+28FF) in the terminal
+  title while computing and `✳` (U+2733) when not. **Measured 2026-07-28 over ~750
+  one-second samples across three live sessions, including a deliberately blocked one: a
+  session waiting on a user question shows the same `✳` as a finished one.** The title
+  encodes whether work is happening, never why it stopped, so "needs you" is not
+  derivable from it.
+- **Do not add a red dot by guessing.** If a marker appears in a future Claude Code
+  release, verify it the same way before wiring it to `M.claudeDotColors`.
+
+### D18. Red comes from hooks, because the title provably cannot carry it
+- **Decision:** `claude-dashboard-state.sh` — registered on `UserPromptSubmit`,
+  `Notification`, `Stop` and `SessionEnd` — writes one JSON file per session into
+  `M.claudeStateDir`, and `readHookStates()` reads them. `Notification` is the
+  authoritative "wants you" signal.
+- **Why:** the measurement in D17. **Re-measured 2026-07-28: a session held at a question
+  for 26 s showed the same `✳` as a finished one.**
+- **Precedence in `claudeStateFor` is working → waiting → done.** Computing wins, so
+  answering a question turns the dot yellow again without waiting on any hook.
+- **Hooks are optional** — without them the dot degrades to yellow/green, never red.
+- **Do not try to recover red from the title.** That was measured and it is not there.
+
+### D19. Tell the two kinds of `Notification` apart by ordering, never by message text
+- **Decision:** a `waiting` write arriving on top of `done` is **dropped**.
+- **Why:** Claude Code sends `Notification` for two different things — a real question or
+  permission prompt, and an idle "waiting for your input" nudge roughly a minute **after**
+  a turn ends. Taking the nudge at face value turned every finished session red as soon as
+  you looked away long enough: **observed 2026-07-28**, a Desktop went green on completion
+  and then red when the user came back to it. A real question can only occur mid-turn, so
+  the last recorded state is `working`; a nudge can only occur after `Stop`, when the last
+  state is `done`. Ordering separates them; **message wording is not a stable contract, so
+  do not branch on it.**
+- **Where:** `claude-dashboard-state.sh`. The payload's `message` is recorded in the state
+  file **for diagnosis only**.
+
+### D20. Stale hook files age out, and a second guard is structural
+- **Decision:** `M.claudeHookMaxAgeHours` (12 h) bounds a state file's life; separately,
+  the dot renders only when a *live* claude terminal title exists for that repo.
+- **Why:** a session killed without `SessionEnd` leaves its file behind, and a stale
+  `waiting` would pin a Desktop red forever. The structural guard means a dead session's
+  file cannot show anything by itself.
+
+### D21. Green means "finished and unseen", not "idle"
+- **Decision:** the dot is set on the working → not-working **edge**
+  (`noteTransitions`) and cleared when you visit that Desktop (`acknowledgeSids`).
+  Sessions already idle at launch are never flagged.
+- **Why:** it should report *a prompt that completed while you were elsewhere*, not the
+  mere absence of work — otherwise every login would show a wall of green.
+- **Acknowledging by pressing return in the claude window is not possible:** an empty
+  return does not change the terminal title, so there is nothing to observe.
+
+### D22. The dot is looked up by the DETECTED label, never the displayed one
+- **Decision:** `labelCache[sid]` keys the state; `overrides[sid]` is display only.
+- **Why:** a ⌘⌃⌥n name replaces what the panel shows but not what the Desktop *is*, and
+  session state is keyed by repo name — so matching on the displayed string meant every
+  renamed Desktop **silently lost its dot**, and never cleared its green flag either,
+  since `acknowledgeSids` had the same fault. **Observed 2026-07-29:** a Desktop renamed
+  `three-way_analysis` showed no dot while its session was plainly working, because the
+  state lived under `three-way_sst_error_analysis_manuscript`.
+
+### D23. Sessions mode acknowledges by focus, not by Space
+- **Decision:** `acknowledgeFrontSession` clears the flag for whichever Terminal window
+  is frontmost.
+- **Why:** visiting a Desktop is meaningless when every session shares one. **Reported
+  symptom:** the green dot survived both visiting the window and typing into it, because
+  clicking the dashboard line was the only path that cleared it.
+- **Two guards matter:** Terminal reports a `front window` even when Terminal is **not**
+  the active application, so without the frontmost-app check a session would be marked
+  seen while you worked in something else; and the **id must match**, so being in a
+  different terminal window does not clear it.
+
+### D24. `acknowledgeSids` takes Space ids instead of looking them up
+- **Decision:** pass the ids in from `scanActive`, which has already paid for
+  `activeSids()`.
+- **Why:** `hs.spaces` calls are slow enough that repeating them on the dot's 3 s timer
+  was a **measurable** cost. An early version called them from the task callback and it
+  was the wrong place.
+
+### D25. The dot has its own timer
+- **Decision:** `M.claudeDotSeconds` (3 s) drives it directly.
+- **Why:** riding the 10 s `scanActive` made it lag far enough that a session looked idle
+  for seconds after it started working — the panel read "all green" during real work.
+
+### D26. Read the dot's state from Terminal's AppleScript, not from Accessibility
+- **Decision:** ask Terminal for its window titles.
+- **Why:** Terminal reports titles for windows on **all** Spaces, so the dot stays
+  correct for Desktops you are not viewing — **the one place this tool escapes the
+  "only the active Space is readable" constraint of D3.** Matching the title's cwd
+  component against the Desktop's repo label avoids needing any window-to-Space mapping.
+
+### D27. That AppleScript call must stay asynchronous
+- **Decision:** it runs through `hs.task`, and a redraw happens only when a dot actually
+  changed.
+- **Why:** **measured** — the same query issued synchronously blocked long enough to time
+  out Hammerspoon's own IPC, precisely the class of stall that D4 and D5 exist to prevent.
+  `draw()` rebuilds every canvas, so redrawing unconditionally is not free either.
+
+---
+
+## Git state and the ⌘⌃⌥g popup
+
+### D28. The git dot is local-only; the network half is a separate keypress
+- **Decision:** the dot answers one offline question — does GitHub have everything on
+  this machine? RED = dirty tree **or** unpushed commits; GREEN = clean and pushed. It is
+  `git status --porcelain` plus `rev-list @{u}..HEAD`, **no network**.
+- **Why:** "has GitHub itself changed?" cannot be known without contacting GitHub, and the
+  answer goes stale the moment anyone pushes. **A dot must not assert what it hasn't
+  checked.**
+- **Where:** `refreshGitStates()` → `gitStateFor`, second in each entry's `dots` list.
+  GitHub state lives in the ⌘⌃⌥g popup (`M.scanGitHub`) instead — the only thing here
+  that touches the network, only when pressed, and only for the repos currently shown
+  (`displayedRepos`).
+
+### D29. ⌘⌃⌥g uses `git ls-remote`, not `fetch`
+- **Decision:** read the remote head SHA with `ls-remote`.
+- **Why:** it downloads no objects and updates no local ref, so it **never changes what
+  `git status` shows in the user's own terminal** — the light touch that was asked for.
+- **Cost, accepted:** a yes/no "GitHub differs", not an exact behind-count.
+- **Classification:** remote SHA equals `HEAD` → up to date; remote is an ancestor of
+  `HEAD` → unpushed only; otherwise → "GitHub ahead", **which also covers a true
+  divergence**, where the remote SHA is not even in the local object store.
+- `GIT_TERMINAL_PROMPT=0` plus an `M.githubTimeout` watchdog mean a remote that needs
+  credentials fails fast instead of hanging the query.
+
+### D30. Clicking "GitHub ahead" pulls, and `--ff-only` is the whole design
+- **Decision:** `git pull --ff-only`.
+- **Why:** this is the **only** thing in the tool that WRITES to one of your
+  repositories, so it is the one place that has to be conservative instead of clever. The
+  trap is that "GitHub ahead" also covers a true **divergence** (D29). A plain `git pull`
+  answers divergence with a merge commit — a rewrite of your history from a single click,
+  in a window with nowhere to resolve a conflict. `--ff-only` takes the easy case
+  (someone pushed from your other machine, which is what this button is for) and refuses
+  everything else out loud.
+- **Verified 2026-08-01 on a throwaway repo:** behind-only fast-forwards; diverged returns
+  `fatal: Not possible to fast-forward, aborting.` with **HEAD unmoved**.
+- `M.pullFFOnly = false` allows the merge for anyone who wants it.
+
+### D31. The pull refuses while a claude session is WORKING in that repo, not merely open
+- **Decision:** block on `working`; `M.pullBlockOnClaude = "any"` for anyone who wants it
+  strict.
+- **Why:** changing files under a session that is mid-task destroys nothing, but it leaves
+  that session reasoning about files that no longer say what it read. **Blocking on any
+  live session was considered and rejected:** on the machine this was built for, a session
+  is open in most repos most of the time, so that rule would have refused nearly every
+  pull and the button would be decoration.
+- **The test is `claudeStates`** — the live read of terminal titles — **and NOT
+  `claudeStateFor`**, which returns nil once you have acknowledged a session and would
+  therefore call a busy repo clear.
+
+### D32. The open-file check exists because that is the only way this button can lose work
+- **Decision:** before pulling, find what would change and abort if any of it is open in
+  a `docApps` editor.
+- **Why:** git protects what it knows about — **verified 2026-08-01** that an uncommitted
+  edit to an unrelated file survives a pull untouched, and an uncommitted edit to a file
+  the pull wants results in `Please commit your changes or stash them before you merge.
+  Aborting.` What git **cannot** see is an editor holding an old copy in memory: pull new
+  text, then save from that editor, and the incoming change is gone with no git operation
+  to blame. This panel already reads the open document of every editor in `M.docApps` for
+  repo detection (D5), so it is the one component that CAN see it.
+  - **Learn what would change without changing anything:** `git fetch` (which the pull
+    would do anyway, and which only moves the `origin/…` tracking ref) then
+    `git diff --name-only HEAD..@{u}`. Those paths are matched against the open documents.
+  - **Abort, don't warn.** A warning still leaves the stale buffer sitting in front of
+    you; the failure mode is a save you make a minute later, long after the warning is
+    gone. Closing the file and clicking again costs seconds.
+  - **A clean check means "nothing KNOWN to be open", never "nothing is open."** It sees
+    only `M.docApps` editors, only on Desktops read since launch. **Never let this guard
+    imply a guarantee, in the UI or in the docs.**
+  - **The precheck talks to the network too**, so it carries the same watchdog as the
+    pull. Without one, a wedged fetch leaves `pullPrecheckTask` set and every later click
+    reports "a pull is already running".
+- **Live tension — TeXShop is knowingly outside the check, and was left that way
+  (2026-08-01).** It is a real editor for this user's repos, so the gap is real. But
+  `docApps` is an allowlist precisely because asking some apps for `AXDocument` can stall
+  the panel for minutes (D5), and **TeXShop has never been measured**. Adding it would
+  trade a documented blind spot for a possible hang in the read path, which is the one
+  thing this codebase has spent the most effort protecting. Documented in the README's
+  "What to be careful about" instead. **If it is ever added, measure the `AXDocument` read
+  first.**
+
+### D33. The confirmation comes AFTER the checks, so it can name what will change
+- **Decision:** prompt with the file list, not with "Are you sure?".
+- **Why:** "Are you sure?" is a speed bump you learn to click through; "3 files will
+  change: notes.md, run.lua, extra.txt" is a decision. The file list is already in hand
+  from the precheck, so the informative version costs nothing. It also means the prompt
+  only ever appears for a pull that is actually going to happen — the blocked cases say
+  why instead of asking.
+
+### D34. The prompt lives INSIDE the popup, not in a system dialog
+- **Decision:** the two links go in the popup's status area and post back through the same
+  `usercontent` bridge as the pull link.
+- **Why:** `hs.dialog.blockAlert` would be less code, but an alert raised by Hammerspoon
+  while another app is frontmost **can open BEHIND that app** — the most likely
+  explanation for the "⌘⌃⌥N does nothing" report of 2026-07-30. The popup is already
+  frontmost under the cursor. It also avoids a modal blocking the Lua state while a task
+  callback is mid-flight.
+
+### D35. Git's refusals are shown verbatim, not second-guessed
+- **Decision:** **there is no dirty-tree guard.** Git decides and the popup repeats it.
+- **Why:** a dirty file in the way, or a history that cannot fast-forward, is exactly what
+  you want to be TOLD rather than have handled for you — and git's messages are better
+  than any pre-flight check this tool would write.
+
+### D36. There is no push button, deliberately
+- **Decision:** offer pull, never push.
+- **Why:** a fast-forward pull cannot lose work. A push can. **The asymmetry is the whole
+  reason one is offered and the other isn't.**
+
+### D37. A click reaches Lua through an `hs.webview.usercontent` controller built once
+- **Decision:** the controller is built **once** and reused; the pull runs through
+  `hs.task` with its own watchdog (`M.pullTimeout`, longer than the query's — a pull
+  fetches objects).
+- **Why:** `showGitHubPopup` deletes and rebuilds the webview on every ⌘⌃⌥g, so the
+  controller has to outlive it. And nothing that touches the network may block the panel
+  (D27).
+
+### D38. The success line is timed to be read
+- **Decision:** 2.5 s before the rescan.
+- **Why:** a successful pull re-runs the whole query so every row is true again, not just
+  the clicked one — but that rebuilds the popup and takes the result with it. **Measured
+  at 1.2 s the message was gone before it could be read.** On failure there is no rescan,
+  so git's message stays until dismissed.
+
+### D39. A pull does update `origin/main`; the query does not
+- **Decision:** state the "your local refs untouched" promise for the ⌘⌃⌥g **query**
+  only, never for the pull button.
+- **Why:** `git pull --ff-only` fetches even when it then refuses to move your branch.
+  That is normal and harmless, but it makes the promise false for the button.
+- **Related:** no "last push" time is shown, because **git does not record one.** The
+  popup shows the last *commit* time (`log -1 %cd`), which is real; a push timestamp would
+  have to be invented or fetched.
+
+---
+
+## Rendering the panel
+
+### D40. A label that names apps is replaced by those apps' icons; a label that names work is not
+- **Decision:** `detectLabel` returns the KIND of evidence behind the label — `repo` /
+  `cwd` / `app` / `apps` / `none`. `apps` (a bucket: `Utility`, `Communication`) and `app`
+  (one app's own name: `MacDown`) both draw icons; `repo` and `cwd` keep their text.
+- **Why:** in the `app`/`apps` cases the word is only standing in for the apps themselves.
+  `repo` and `cwd` **name the work, which no icon can.** Icons for the single-app case
+  were withheld at first, on the grounds that `MacDown` already says something — but that
+  was written before the hover tip existed. Once pointing at an icon gives the name back,
+  dropping the word costs nothing and the panel stops treating "one app" and "three apps"
+  as different kinds of thing. **Asked for and chosen 2026-07-30.**
+- **Consequence worth knowing:** `M.appLabels` (D10) now shows only when icons are off or
+  unavailable, so that disambiguation is carried by the icon and the tip instead.
+  `M.showAppIcons = false` restores the words.
+- **Constraint:** icons need a real read of the Desktop (bundle ids come from the window
+  snapshot), so a Desktop whose name was restored from disk shows its old text until it is
+  next scanned — the same constraint every other live detail has (D3).
+
+### D41. A line is a NAME and an ICON ROW, and they answer different questions
+- **Decision:** the two are independent. ⌘⌃⌥n replaces the name and **leaves the icons
+  alone.**
+- **Why:** the name says what the Desktop is *for*; the icons say what is *on* it.
+  Renaming a Desktop cannot change which apps are sitting on it, and the old behaviour —
+  an override suppressed the icons entirely — **threw away a fact to honour a label.** The
+  name is empty only when the icons are standing in for a word that itself named apps
+  (`Utility`, `MacDown`); a repo or session directory keeps its text and the icons follow
+  it. **Asked for 2026-07-30.**
+
+### D42. The icon row is placed by measuring the styled line, not by counting characters
+- **Decision:** `hs.drawing.getTextDrawingSize(styledtext)` measures the object actually
+  drawn.
+- **Why:** the line mixes two font sizes (the half-space between the dots), so a character
+  count puts the icons a few px off — **and the error changes with the dot states, so the
+  row would visibly shift as sessions started and stopped.**
+- **Width is still budgeted in characters** (`iconTextPad`), because that is the unit the
+  panel sizes itself in.
+- Dragging from an icon moves the panel exactly as from the text; each icon carries its
+  OWN element id (`icon:<sid>:<wid>`) rather than the line's, because a click on an icon
+  means something more specific than a click on the line (D56).
+
+### D43. Some apps are invisible to Accessibility, so CoreGraphics is a second window source
+- **Decision:** `snapshot()` also indexes `hs.window.list(true)` (CoreGraphics), and
+  `readSpaceFrom` falls back to it for any window id Accessibility could not resolve.
+- **Why:** **measured 2026-07-30** — the Claude desktop app returns **nil for every AX
+  attribute** (no role, no `AXWindows`, nothing) and ChatGPT Classic likewise exposes no
+  window. A Desktop holding both therefore read as empty (`—`) however many windows were
+  on it. The natural assumption, reported as such, was that one of our own rules was
+  hiding them. **It was not:** `noRepoHintApps` only withholds an app's *title* from repo
+  matching (D8), and the app still counts toward the subject — if a window can be seen at
+  all.
+- **Same discipline as D4:** ~14 ms, ONCE per read pass, never per window.
+  - **Layer 0 only.** CoreGraphics lists everything on screen — menu-bar extras,
+    Spotlight, Control Center, the Dock, us — all at layer 24/25. Layer 0 is an ordinary
+    application window, and the filter is what makes the fallback usable rather than
+    noise.
+  - **It is on-screen only**, so it resolves nothing for a Space you are not viewing.
+    That costs nothing: the active Space is the only one macOS lets us read anyway (D3).
+  - **These windows contribute an ICON and nothing else.** CoreGraphics gives an owner and
+    a pid — no title, no `AXDocument` — so they can never touch repo detection, and there
+    is no window object to raise. Clicking one activates the *application* instead, which
+    is why an icon id can be `icon:<space>:p<pid>` as well as `icon:<space>:<windowid>`.
+
+### D44. The icon row is saved to disk with the name, because it costs only a bundle id
+- **Decision:** `saveLayout` persists the icon row alongside the name.
+- **Why:** names have always survived a reload; icons did not, so every reload — and every
+  `git pull` of this file — left a panel of bare words until ⌘⌃⌥S walked all thirteen
+  Desktops. **That was never a platform limit**: an icon needs only a bundle id, no window
+  read at all. It was simply the half of `saveLayout` that was missing. **Reported
+  2026-08-01** as "why do I have to press ⌘⌃⌥s after every change"; the honest answer was
+  that it had not been saved.
+  - **Window ids are deliberately NOT saved.** They are reused after a reboot, so a stale
+    one could raise a window that has nothing to do with the icon you clicked — **a wrong
+    action is worse than a missing one.** A restored icon still draws and still names
+    itself on hover; it just has no window behind it, so it gets an `icon:<sid>:r<n>` id
+    and a click on it only goes to the Desktop. Full behaviour returns the moment that
+    Desktop is read.
+  - **A restored row can show something that is gone.** **Observed immediately:** a
+    `Problem Reporter` (crash dialog) window that had been on a Desktop was still in its
+    saved row afterwards. This is the same staleness the restored NAME has always had, and
+    the fix is the same — read the Desktop. What makes it honest rather than misleading is
+    D45.
+
+### D45. A count of unread Desktops sits above the legend, and clicking it reads them
+- **Decision:** show "10 Desktops not read yet · click here or press ⌘⌃⌥s to read them",
+  count down as Desktops are read, and disappear at zero.
+- **Why:** macOS only lets us read the Desktop you are looking at (D3), so after a reload
+  the rest are last session's picture until visited (D44). The panel now says so.
+- **It names BOTH ways of acting because both exist:** the line is a click target and the
+  hotkey does the same thing. An earlier draft trailed the hotkey in a parenthesis, which
+  **read as a footnote rather than as something to do — reported 2026-08-01.**
+- **Free:** computed from the entries `draw()` has already built, so it costs no extra
+  `hs.spaces` calls. It hides while a scan is running because `M.status` is saying the
+  same thing more precisely.
+- **Asking rather than scanning automatically is deliberate:** a ⌘⌃⌥S walk takes over both
+  displays for ~25 s, which is not something to do to someone unprompted every time they
+  reload.
+
+### D46. Finder and terminals get icons, always last
+- **Decision:** collect them separately (`extras`) and append after the subject apps.
+- **Why:** they are in `ignoreApps` because a Desktop is never *about* Finder (D6) —
+  **that is a statement about the SUBJECT, not about whether they are worth showing.**
+  "There is a Finder and two terminals here" is real information.
+- Hammerspoon stays out: it is this panel. The terminal list is taken from
+  `M.claudeOnlyHintApps` rather than duplicated, so adding your terminal in one place is
+  enough.
+
+### D47. A terminal icon is dropped from a Desktop named after a repo or a session directory
+- **Decision:** drop it when the detection KIND is `repo` or `cwd`. Finder always stays.
+- **Why:** that name came from the terminal's own working directory (D14), so its icon
+  would say the same thing twice — and the icons exist to add what the name cannot. Finder
+  is never redundant that way.
+- **The test is the KIND, not the displayed text**, so a ⌘⌃⌥N rename does not quietly
+  bring the terminal back (same discipline as D22).
+
+### D48. Trailing icons never count toward the "enough icons to drop the word" threshold
+- **Decision:** `list.lead` records how many entries are subject apps, and only those are
+  counted against `list.min`.
+- **Why:** otherwise a Finder window could be the second icon that lets a three-app
+  Desktop lose the word `Utility` while one of its apps had no resolvable icon — **the
+  exact misrepresentation the threshold (D57) exists to prevent.**
+
+### D49. Resizing scales `M.fontSize`, because everything else is derived from it
+- **Decision:** one number resizes the panel coherently — line height, character width,
+  icon edge, legend size and the width bounds all come from it.
+- **Why:** there is no free aspect ratio to preserve; the panel's shape follows its
+  content. So the corner drag is projected onto the diagonal
+  (`((startW+dx) + (startH+dy)) / (startW+startH)`) and turned into a size. **Both axes
+  contribute**, so dragging out along either one grows it.
+- **Integer sizes** mean ~20 redraws across a full drag rather than one per pixel, and
+  `setFontSize` skips its file write mid-drag because `endDrag` writes once on release.
+  - **The grip is at the corner OPPOSITE the panel's anchor.** The panel is positioned by
+    its top-left, so growing it from the bottom-right keeps the corner you're holding the
+    one that moves.
+  - **`draw()` replaces every canvas, including the one being dragged**, so the resize
+    branch re-points `drag.cv` at the successor by screen UUID after each step. Without
+    that, the next move acts on a deleted object.
+  - **This replaced a pair of −/+ buttons (v39).** They worked, but one point per click
+    across a useful range is tedious — the objection to any stepper, and the reported
+    complaint. Their width also had to be reserved out of the panel's top-right corner;
+    the grip sits past the end of the legend and costs nothing.
+
+### D50. `minWidth`/`maxWidth` are px at `M.baseFontSize` and scale from there
+- **Decision:** treat the width bounds as relative to `M.baseFontSize`, not absolute.
+- **Why:** a flat px cap stops meaning anything once the panel can be zoomed. **Measured
+  2026-07-30:** at 20 pt a long repo name plus its icon row needs ~990 px, so the fixed
+  760 cap silently cut the icons off the right-hand end — visible only because the icons
+  made the truncation obvious where clipped text had been easy to miss.
+
+### D51. The active-Desktop marker is a caret AND a colour, and the two markers are the same width
+- **Decision:** `"▸  "` against `"   "`, plus a magenta Desktop number (`M.activeColor`).
+  **Both, rather than either.**
+- **Why (width):** the prefix was `"▸ "` against `"   "` — two cells against three, so the
+  Desktop you were standing on was the one line that did not line up with the rest.
+  **Measured in Menlo 13: `"▸ "` is 15.65 px, `"   "` is 23.48, and `▸` alone is exactly
+  one cell (7.83), so `"▸  "` matches.** Do not assume a glyph is one cell wide because
+  the font is monospaced — measure it, as `M.activeMarker`'s comment says.
+- **Why (both):** colour alone excludes anyone who cannot separate magenta from white, and
+  this panel already spends four colours on the dots. **Magenta is deliberately none of
+  them.**
+- Only the marker and `Desktop N` are coloured — the label stays white so a repo name
+  reads identically wherever you happen to be.
+
+### D52. ⌘⌃⌥N renames the FOCUSED Space, not the one under the pointer
+- **Decision:** `hs.spaces.focusedSpace()` first; the mouse is the fallback.
+- **Why:** they were the same thing until the panel could be dragged across a display
+  boundary. With it straddling two screens, resting the pointer over the panel meant
+  `hs.mouse.getCurrentScreen()` returned the *other* display, so ⌘⌃⌥N **silently offered
+  to rename a Desktop you weren't looking at.** Focus is where you are working.
+
+### D53. An `hs.canvas` IMAGE element never reports mouseEnter/mouseExit, so every icon carries a transparent rectangle
+- **Decision:** all mouse handling for an icon lives on an invisible rectangle laid over
+  it; the image element is left untracked.
+- **Why:** **measured 2026-07-30 with identical frames and identical tracking flags** — an
+  `image` element reports `mouseDown`/`mouseUp` but **neither enter nor exit**, while a
+  `rectangle` reports all four, and a rectangle with `alpha = 0` still hit-tests.
+- **If hover ever stops working, check this first.** It is not something the documentation
+  states.
+
+### D54. Naming an icon beats enlarging it
+- **Decision:** a hover tip giving the app name and, on a second dimmed line, the title of
+  the window a click would raise.
+- **Why:** the icons replace a label for Desktops that are a mix of apps, which is exactly
+  where the less-used apps live — and **a bigger version of an icon you didn't recognise
+  is still an icon you don't recognise.** The second line is what lets you tell two windows
+  of the same app apart before committing to the switch.
+
+### D55. The tip is re-placed by `draw()`, and a poll guards against the mouseExit that never comes
+- **Decision:** `refreshTip()` runs at the end of `draw()` and re-places the tip if the
+  same icon still exists; `tipWatch` checks every 0.4 s that the pointer is still inside
+  the hovered icon's rect.
+- **Why (re-place):** `draw()` deletes and rebuilds every canvas, which orphans a visible
+  tip on a dead element — and **no fresh mouseEnter arrives while the pointer sits still**,
+  so the tip would simply vanish every time a dot changed (a 3 s timer, D25). A *pending*
+  tip timer needs nothing: when it fires it reads the new canvases anyway.
+- **Why (poll):** deleting a canvas under the pointer can swallow the exit, which would
+  **pin a tip on screen permanently.** The poll runs only while a tip is actually showing,
+  so it costs nothing the rest of the time.
+
+### D56. Clicking an icon raises that window; clicking the line does not
+- **Decision:** the line stays "take me there"; the icon is the only way to say *which*
+  window you want.
+- **Why:** arriving on a Desktop should normally leave it as you left it. Picking an icon
+  is what makes the icon row worth pointing at.
+- **The window is re-resolved by id at click time (`hs.window.get`)** rather than reusing
+  the object captured during the read: that object may be minutes old and its app long
+  gone, and only once the Space is active is the lookup reliable. **`hs.window.get` is the
+  ~40 ms call banned from the read path by D4 — one click can afford it, a per-window loop
+  cannot.** This is the sanctioned exception.
+- The raise waits `M.iconFocusDelay` for the Space switch to finish; firing into a
+  half-finished switch does nothing.
+
+### D57. How many icons a row needs depends on what it replaces (`list.min`)
+- **Decision:** a single-app Desktop draws its one icon; a **mixed** Desktop needs two.
+  The threshold is recorded per Desktop when it is read, not hardcoded in the renderer.
+- **Why:** the word a single-app row replaces is that app's name, which the tip gives
+  straight back (D54). One icon on a mixed Desktop would **assert the other apps aren't
+  present**, and `Utility` is at least honest about being a summary.
+- Icons are memoized per bundle id (`false` records "has no icon") since `draw()` rebuilds
+  every canvas and app icons do not change while Hammerspoon runs.
+
+### D58. An empty dot slot goes gray whenever the line shows any live dot — but only then
+- **Decision:** a gray placeholder holds the column open when the other dot is lit; a line
+  with **no** live dot keeps blank spacers.
+- **Why:** the two dots are told apart only by position — claude first, git second — and
+  position is unreadable when one column is blank: **a lone green git dot in slot 2 reads
+  as a claude dot saying "finished".** It is deliberately not unconditional, because a
+  gray pair on every Desktop with nothing to report would be two columns of noise.
+- **The rule is symmetric**, so a session in `~` (claude dot, no git dot) gets the same
+  treatment in reverse.
+
+### D59. Both dots share one `hs.styledtext` element
+- **Decision:** an entry carries an ordered `dots` list (`{ch, color}`, claude then git);
+  `draw()` builds `prefix .. dot1 .. dot2 .. suffix` as a single styledtext.
+- **Why:** the click target and sizing (`e.text`) are unchanged, and a blank (uncoloured)
+  dot is just a spacer that keeps the arrows aligned.
+
+---
+
+## Refresh and lifecycle
+
+### D60. Event-driven refresh, debounced
+- **Decision:** an `hs.window.filter` on create/destroy triggers a refresh ~0.8 s after
+  changes settle.
+- **Why:** cheap now that reads are single-snapshot (D4); it just schedules the fast read.
+
+### D61. Deferred first scan on launch
+- **Decision:** `start()` draws immediately and schedules the first read 1.5 s later.
+- **Why:** so a slow read can never freeze Hammerspoon during config load.
+
+### D62. Version stamp on every change
+- **Decision:** every build sets `M.version` and prints it on load. **Bump it on every
+  change.**
+- **Why:** added after a stale-file mix-up — a copy saved as `desktop_dashboard_11.lua`
+  meant `require` kept loading old code. A printed version makes a stale file obvious.
+
+---
+
+## Repo and process
+
+### D63. Keep `pre_conversion` material as `PRE_CONVERSION/`, and leave the originals unedited
+- **Decision:** the former `archive/` — `MOVING.md` and the one-time migration
+  `STATUS.md` — moved to `PRE_CONVERSION/` on 2026-08-03 under the standard's D13. The two
+  originals are **not edited**; only the folder's own index `README.md` was updated to say
+  the new name.
+- **Why:** D13 of `claude-config` — never modify an original in place. `archive/` was
+  already doing exactly the job `PRE_CONVERSION/` is for, under a different name, so this
+  is a rename rather than a new practice.
+- **Note:** that `STATUS.md` is a **one-time migration record from 2026-07-27**, not a
+  living snapshot. It is not the same kind of file as the repo-root `STATUS.md` written by
+  this migration, which is why it stays under `PRE_CONVERSION/` rather than being merged.
+
+### D64. `desktop_dashboard.lua`, `claude-dashboard-state.sh` and `init.lua.example` stay at the repo root
+- **Decision:** the code does not move into a spine folder.
+- **Why:** the standard is explicit that code, build tooling and entry points never move
+  into the spine folders, because imports and registered paths point at them.
+  `~/.hammerspoon/init.lua` points `require` at `desktop_dashboard.lua` by path, and
+  `~/.claude/settings.json` names `claude-dashboard-state.sh` by path on four hook
+  registrations. **Moving either would silently break a live installation on every machine
+  that has one** — and the second one would break it for anyone who followed `INSTALL.md`.
+- **Where:** `INSTALL.md`, `init.lua.example`, `~/.claude/settings.json`.

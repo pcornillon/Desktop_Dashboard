@@ -10,7 +10,7 @@ something.
 It works whichever way you organise things. **⌘⌃⌥m** switches between two views, or shows
 both at once.
 
-![The Desktop Dashboard panel floating over a macOS desktop: twelve Desktops on an external display and one on a laptop display, each labelled with app icons or a project name and some carrying colored status dots, then a section listing three running Claude Code sessions, then a legend of keyboard shortcuts.](docs/panel.png)
+![The Desktop Dashboard panel floating over a macOS desktop: twelve Desktops on an external display and one on a laptop display, each labelled with app icons or a project name and some carrying colored status dots, then a section listing three running Claude Code sessions, then a legend of keyboard shortcuts.](DOCS/panel.png)
 
 Built on [Hammerspoon](https://www.hammerspoon.org). Free, notarized, **no SIP changes**.
 
@@ -652,4 +652,8 @@ need changing:
   not reassemble a scattered post-reboot layout. For apps that always belong in one place,
   macOS's own Dock → Options → **Assign To** is more reliable.
 
-See `CLAUDE.md` for the design decisions and the measurements behind them.
+## Under the hood
+
+`DECISIONS.md` holds all 64 design rulings and the measurements behind them — why the
+dot has two colours and not three, why the pull is `--ff-only`, why an icon needs an
+invisible rectangle laid over it. `CLAUDE.md` is the architecture and the layout.
