@@ -103,7 +103,11 @@ Remote work: legend words are buttons (D68–D71), the hook raises the alert (D7
 **Nothing is in flight, and the two machines are back in step.** Today's three faults are
 fixed and verified — the dead dots (**D65**), the flickering session list (**D66**), and the
 naming rule that let an open document steal a Desktop's name from the session running on it
-(**D67**, **D74**) — and the laptop's parallel work is merged in.
+(**D67**) — and the laptop's parallel work is merged in. The panel was then tuned twice on
+top of that: the colour moved to the session lines and everything else went white, and a
+project now names a Desktop **only** when one of its documents is open there (**D74**,
+**D75**, `v52`). Nothing about either is open — the last question, whether "document" meant
+`.md` only, was put back and answered: any document.
 
 **What has never been exercised, and needs a person at the keyboard:**
 
