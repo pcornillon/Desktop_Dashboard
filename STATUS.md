@@ -1,14 +1,15 @@
 # STATUS.md — Desktop Dashboard
 
 Living snapshot of where this project stands. Rewritten, not appended.
-Last updated: **2026-08-04 14:33 EDT** (`satdat1`).
+Last updated: **2026-08-04 15:00 EDT** (`satdat1`).
 
 ---
 
 ## State
 
-- **The tool is at `v50` and in daily use.** `M.version` reads
-  `"v50 (Desktops named by their live sessions; projects in teal, 2026-08-04)"`.
+- **The tool is at `v51` and in daily use**, which is the **merge of two machines'
+  parallel work**: `M.version` reads
+  `"v51 (merge: session-named Desktops, legend buttons, remote alerts, 2026-08-04)"`.
   One file.
 - **The last functional change was today**, and it was a repair. Every dot on the panel had
   gone dead: `hs.task` deadlocks on more than ~512 bytes of output unless a streaming
@@ -25,8 +26,14 @@ Last updated: **2026-08-04 14:33 EDT** (`satdat1`).
   sessions on it, one line each, joined to their Desktops by **window** rather than by
   name; a Desktop with none is named after the projects its windows belong to, in teal,
   and carries no dots.
-- **Uncommitted.** `desktop_dashboard.lua` (v49) and the spine files carry today's work;
-  nothing has been committed yet.
+- **The two machines are merged.** The laptop's `73803a4` (clickable legend words,
+  cross-machine alerts) and this machine's `a6a8c5b` (v47–v50) diverged from `6442953` and
+  are now one history. Only three hunks conflicted — the version line, `M.stop`, and one
+  block in `CLAUDE.md` — and the laptop's 59 lines of decision prose were **lifted into
+  `DECISIONS.md` as D68–D73** rather than discarded with the conflict.
+- **Task #1 is closed by the merge:** this repo's `claude-dashboard-state.sh` is now 206
+  lines, byte-identical to the `claude-config` copy that actually runs (`diff`, after the
+  merge).
 - **This repo was migrated onto the project spine on 2026-08-03** (`claude-config`
   Tasks #11 and #19). What changed:
   - `DECISIONS.md` now exists and holds **D1–D64**, lifted out of `CLAUDE.md` where they
@@ -61,12 +68,14 @@ Everything in this section was run or read, not recalled.
 - Working tree clean and level with `origin/main` before the migration began
   (`6442953`).
 
-## Decisions taken (D1–D67)
+## Decisions taken (D1–D74)
 
-D1–D64 were lifted from `CLAUDE.md` on 2026-08-03 and none of those is new. **Three are new
-today**: every `hs.task` carries a timeout (**D65**), a subprocess writes to a file rather
-than a pipe (**D66**), and a Desktop is named by its live sessions, failing that by the
-projects its windows belong to (**D67**).
+D1–D64 were lifted from `CLAUDE.md` on 2026-08-03. **Ten are new on 2026-08-04.** Written
+here: every `hs.task` carries a timeout (**D65**), a subprocess writes to a file rather than
+a pipe (**D66**), a Desktop is named by its live sessions and failing that by the projects
+its windows belong to (**D67**), and that name is teal (**D74**). Lifted out of the
+laptop's `CLAUDE.md` prose by the merge, measurements intact: the clickable legend
+(**D68**–**D71**) and the cross-machine alert (**D72**, **D73**).
 
 Platform: overlay rather than renaming (D1), Hammerspoon (D2), active-Space-only reads
 (D3), one `allWindows()` snapshot per read (D4), the `docApps` allowlist (D5).
@@ -84,44 +93,31 @@ Rendering: D40–D59.
 Lifecycle: D60–D62.
 Repo: `PRE_CONVERSION/` (D63), the code stays at the top level (D64).
 Subprocesses: time out every read (D65), capture to a file (D66).
-Naming: sessions first, then the projects a Desktop's windows belong to (D67).
+Naming: sessions first, then the projects a Desktop's windows belong to (D67), in teal (D74).
+Remote work: legend words are buttons (D68–D71), the hook raises the alert (D72–D73).
 
 ## Active thread — resume here
 
-**Nothing is in flight.** Today's three faults are all fixed and verified: the dead dots
-(**D65**), the flickering session list (**D66**), and the naming rule that let an open
-document steal a Desktop's name from the session running on it (**D67**, Task #5, `v49`).
+**Nothing is in flight, and the two machines are back in step.** Today's three faults are
+fixed and verified — the dead dots (**D65**), the flickering session list (**D66**), and the
+naming rule that let an open document steal a Desktop's name from the session running on it
+(**D67**, **D74**) — and the laptop's parallel work is merged in.
 
-**Two things want a mouse, and only Peter has one:**
+**What has never been exercised, and needs a person at the keyboard:**
 
-- **Click-to-cycle and ⌘⌃⌥N on a session line** — built, not exercised. Clicking a session
-  line raises that project's terminal window, and clicking again takes the next session in
-  the same project. ⌘⌃⌥N there renames the project everywhere it appears.
-- **⌘⌃⌥g and its pull** — they go through the rewritten `runTask` and were not exercised,
-  because the popup would have appeared on his screen unasked and the pull writes to a
-  repository. Worth pressing ⌘⌃⌥g once.
+- **Click-to-cycle and ⌘⌃⌥N on a session line.** Clicking raises that project's terminal
+  window; clicking again takes the next session in the same project. ⌘⌃⌥N there renames the
+  project everywhere it appears.
+- **⌘⌃⌥g and its pull**, which now run through the rewritten `runTask`.
+- **The two feature sets together.** The clickable legend words and the remote-alert line
+  came from the laptop and have never run alongside the per-project Desktop lines. They
+  coexist in the loaded build — `legendClicks` is populated, `remoteAlertDir` is set, the
+  Desktop lines still render per project — but nobody has clicked anything.
 
-**One migration consequence he will see immediately:** a ⌘⌃⌥N name set on a Desktop that
-now has a session is ignored, since such a line is named by its project. `Desktop 4` reads
-`three-way_SST_error_analysis_manuscript` again rather than `3-way_analysis`, and is much
-wider for it. Re-applying it as a **project** name fixes it everywhere at once. Adopting the
-old Desktop overrides automatically was deliberately not done — see Task #5.
-
-**One thing is waiting on Peter: Task #1** — the two copies of
-`claude-dashboard-state.sh` have diverged and the copy this repo ships is the older one
-(see *Verified during the migration* above). Three options, none applied:
-
-1. this repo is authoritative and `claude-config` syncs from it;
-2. `claude-config` is authoritative and this repo ships a copy refreshed from it;
-3. this repo's copy is deleted and `INSTALL.md` points at `claude-config`.
-
-Option 3 is the only one that cannot drift again, but it makes this repo
-un-installable by anyone who does not also have `claude-config` — which is most people,
-since this repo is the public one. **That trade-off is the decision, and it is Peter's.**
-
-**Next natural piece of work, if any:** nothing outstanding. The known open gap in the
-tool itself is recorded as **D32's live tension** — TeXShop is invisible to the pull's
-open-file check, and closing that gap needs an `AXDocument` timing measurement first.
+**One migration consequence:** a ⌘⌃⌥N name set on a Desktop that now has a session is
+ignored, because such a line is named by its project. `Desktop 4` reads
+`three-way_SST_error_analysis_manuscript` again rather than `3-way_analysis`. Re-applying it
+as a **project** name fixes it everywhere at once. Peter declined the automatic migration.
 
 **Finder tags do not travel in git.** After pulling this repo on the other machine, run
 `~/Git_Repos/claude-config/tag-spine.sh ~/Git_Repos/Desktop_Dashboard`.

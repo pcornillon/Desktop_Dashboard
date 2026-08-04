@@ -857,3 +857,87 @@ during the migration.
   on the panel's background, and it reads as *dormant* beside the warm yellow/amber cues
   that all mean *live* — which is the distinction the colour is carrying.
 - **Where:** `M.projectColor`, `screenEntries` (`nameColor`), `README.md`, `CLAUDE.md`.
+
+<!--
+D68–D73 were written on the laptop as prose in `CLAUDE.md` on 2026-08-03, hours before
+this repo was migrated onto the project spine on the iMac. They are lifted here on
+2026-08-04 by the same rule the migration used for D1–D64: measurements intact, nothing
+added, dropped or softened. The wording is the laptop's own except where a sentence had to
+change tense to stand alone.
+-->
+
+### D68. A legend word is a button
+- **Decision:** `M.legendClicks` maps a literal substring of a legend line to an element id
+  that `activateElement` already routes on. `GitHub` is the first. The word is overdrawn in
+  colour on top of the gray line rather than the line being split into styled runs, so the
+  line's own layout is untouched and an empty `legendClicks` changes nothing.
+- **Why:** reported 2026-08-03 — working from home over VNC on the office Mac, **the panel
+  is perfectly readable but ⌘⌃⌥ is swallowed by the local machine**, so every command named
+  on it is unreachable. The verdict was "of marginal use". A hotkey is the one thing a
+  remote session cannot send.
+- **Why not a visible affordance:** it costs **zero panel width** this way. The legend is
+  the widest thing in the panel in Desktops mode, so an appended "or click here" would have
+  widened the whole panel by ~13 characters to say what the colour already says. The third
+  legend line names the affordance instead — "click a line, or a blue word" — one character
+  shorter than the line it replaced.
+- **Where:** `M.legendClicks`, `M.legendClickColor`, `activateElement`, `draw`.
+
+### D69. That word is blue, not magenta
+- **Decision:** `M.legendClickColor = { 0.45, 0.75, 1.00 }`.
+- **Why:** magenta already means "the Desktop you are standing on". A second meaning would
+  dilute the one cue that survives in a list of a dozen lines.
+- **Consequence, recorded 2026-08-04:** blue is now spoken for, and the legend says so in
+  words. That is what pushed D67's project colour to teal — see **D74**.
+
+### D70. `hide` and `restore` are deliberately not clickable
+- **Decision:** two legend words stay hotkey-only.
+- **Why, and the two reasons are opposite:** `hide` is a **one-way door** — unhiding is the
+  same hotkey, so on the one machine that cannot press it there would be no way back.
+  `restore` is the reverse problem: not unreachable but **too** reachable. `M.restoreLayout`
+  moves and opens windows across every Desktop and has no inverse, which is not something
+  that should sit one stray click from `mode` and `name`.
+- **Note:** asked for and removed 2026-08-03, having been wired the day it was written.
+
+### D71. The overdrawn word is positioned by measuring, never by counting characters
+- **Decision:** `legendWidth()` measures the prefix; the blue word is placed at that offset.
+- **Why:** measured 2026-08-03 in Menlo 11 (`fontSize - 2`) — the prefix before `GitHub`
+  measures **185.43 px where a character count gives 190.96**, a 5.5 px error against a
+  6.62 px cell. The blue word would have landed most of a character right of the gray one it
+  covers. `legendWidth()` composes exactly (185.43 + 39.74 = 225.17, the full line), so the
+  overdraw registers.
+- **Note:** the same rule as the active marker and the icon row. **This is the third time
+  counting characters in a "monospaced" line has been wrong.**
+
+### D72. The alert that has to leave the machine is raised by the hook, not the panel
+- **Decision:** on the `waiting` that survives the nudge filter,
+  `claude-dashboard-state.sh` optionally drops a marker into a synced folder
+  (`NOTIFY_DROPBOX`) and optionally pushes to a phone (`NOTIFY_NTFY_URL` / Pushover). Any
+  other state clears the marker.
+- **Why:** asked 2026-08-03 — sessions on the office iMac sat blocked on a permission prompt
+  for hours because the red dot was on a screen in Rhode Island. The panel cannot fix this;
+  it renders state for the machine it runs on. The hook already fires at precisely the
+  instant the answer becomes known, so the alert belongs there. Clearing on any other state
+  means answering the question retracts the alert, without the receiving machine having to
+  decide when one is stale.
+- **Deliberately NOT the ssh replica:** a marker is a fact that was true when written.
+  Carrying it needs no VPN, no reachability and no live connection, and it works when the
+  laptop was asleep at the moment it happened. The replica is for browsing live state; this
+  is for being told. Different jobs, no shared code.
+- **The first read after launch only primes the seen-set.** Markers already in the folder
+  are history, and announcing them at every login is how a signal becomes noise — the same
+  reasoning that stops sessions already idle at launch from getting a green dot.
+- **Marker parses are cached by name+mtime, including the FAILURES.** A file read mid-sync
+  fails to parse, and every failure writes a LuaSkin error to the console — on a timer, for
+  ever, for one bad file. Observed while testing: a malformed marker logged on every pass.
+  **Verified the cache holds: 5 reads on the first pass, 0 on the second and third.**
+
+### D73. Absent config means absent behaviour
+- **Decision:** with no `~/.claude/dashboard-notify.conf` there is no marker and no network
+  call. The network calls are backgrounded with `curl -m 8`.
+- **Why:** this script runs on every prompt of every session, so the default has to be that
+  it does nothing new. A hook that blocks holds up the session it exists to observe.
+- **An idle-time gate was considered and rejected.** Suppressing the push while someone is
+  actively using the machine sounds right and is exactly backwards here: **VNC input
+  registers as local HID input**, so `HIDIdleTime` would be low precisely when the user is
+  driving the iMac from home — suppressing the alert in the case it was built for. A
+  per-machine config file is predictable; an inferred one is not.

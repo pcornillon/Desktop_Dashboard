@@ -4,7 +4,7 @@
 git state.
 **Produces:** `desktop_dashboard.lua` — a single-file tool loaded from
 `~/.hammerspoon/init.lua` — plus `claude-dashboard-state.sh`, its Claude Code hook.
-**State:** v50, working and in daily use; see `STATUS.md`.
+**State:** v51, working and in daily use; see `STATUS.md`.
 
 Context for AI coding sessions on this repo. Read this before changing
 `desktop_dashboard.lua`. `README.md` is the user-facing install/usage doc; **`DECISIONS.md`
@@ -18,7 +18,7 @@ design ruling lives there as a numbered `D##`.
 | `CLAUDE.md` (this file) | what the project is, the architecture, the layout |
 | `STATUS.md` | where things stand right now, ending in the **active thread** |
 | `LOG.md` | one line per prompt — scan this to see what has been done |
-| `DECISIONS.md` | **D1–D67** — every design ruling and the measurement behind it |
+| `DECISIONS.md` | **D1–D74** — every design ruling and the measurement behind it |
 | `TASKS.md` | the work list: numbered tasks with `Status:` lines |
 
 ## What this project is
@@ -41,7 +41,7 @@ The module returns a table `M` with a `CONFIG` block at the top and `M.start()` 
 ```
 CLAUDE.md               this file — project context, architecture, layout
 STATUS.md               where things stand + active thread
-DECISIONS.md            D1–D67 — every design ruling, with its measurement
+DECISIONS.md            D1–D74 — every design ruling, with its measurement
 TASKS.md                numbered work list with Status: lines
 LOG.md                  append-only one-line-per-prompt index
 README.md               human-facing overview, controls, config, limitations
@@ -142,7 +142,7 @@ minimized session window reports no Space, so it gets no Desktop line — it is 
 
 ## Where the design rulings live
 
-They are **not** in this file. `DECISIONS.md` holds all 67, with the measurements intact —
+They are **not** in this file. `DECISIONS.md` holds all 74, with the measurements intact —
 the ~40 ms `hs.window.get` cost, the 750-sample dot study, the Menlo 13 glyph widths, the
 observation dates. The ones most likely to be violated by accident:
 
@@ -152,7 +152,7 @@ observation dates. The ones most likely to be violated by accident:
 | label detection | **D67** first — it rewrote what names a Desktop; then **D7**–**D9**, **D13**, four false positives from matching repo names in free text |
 | the claude dot | **D67** (a session belongs to the Desktop its WINDOW is on), then **D17**–**D19** — what the terminal title can and cannot tell you |
 | the ⌘⌃⌥g pull | **D30**–**D36** — the only code here that writes to a repository |
-| drawing / icons | **D40**–**D59** |
+| drawing / icons | **D40**–**D59**, and **D68**–**D71** for the clickable legend |
 
 ## Gotchas for future work
 

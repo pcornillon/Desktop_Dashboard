@@ -13,7 +13,18 @@ put fictitious entries in an append-only file.
 
 ## Task #1 — Decide which copy of `claude-dashboard-state.sh` is authoritative
 
-**Status:** blocked (on Peter — it is a decision, not a cleanup)
+**Status:** done (2026-08-04) — **the drift ended without the decision having to be made.**
+The laptop's `73803a4` rewrote this repo's copy for the cross-machine alert (**D72**,
+**D73**), and merging it here brought the file to **206 lines, byte-identical** to
+`claude-config/hooks/claude-dashboard-state.sh` — the copy `~/.claude/settings.json`
+actually runs, verified with `diff` after the merge. Anyone installing from this repo now
+gets the same script this machine runs.
+
+**The policy question below is still open and still Peter's**, because nothing stops the two
+copies drifting again; only this instance of the drift is resolved. Reopen as a new task if
+it recurs.
+
+**Original entry, as written 2026-08-03:**
 
 **The two copies have drifted, and the one this repo ships is the stale one.** Measured
 2026-08-03 with `diff`:

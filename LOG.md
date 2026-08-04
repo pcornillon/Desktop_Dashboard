@@ -88,3 +88,14 @@ invented index is worse than a short one.
     case Peter reported. Click and ⌘⌃⌥N need a mouse and are untested. **Reported:** a
     ⌘⌃⌥N Desktop name is ignored on a Desktop that has a session — `3-way_analysis` reverts
     to the long repo name until re-applied as a *project* name
+- ★ **P8** `1231_satdat1` · 2026-08-04 14:40 EDT · project name colour, then merge the two
+  machines
+  → **teal**, not the requested dark blue: the laptop's own incoming feature claims blue for
+    clickable legend words and the legend *says* so, and orange collided with the amber
+    status/stale lines → **D74**, `v50`. Then the merge: trial-merged in memory first (no
+    files touched), **three conflict hunks** — version line, `M.stop`, one `CLAUDE.md`
+    block. The laptop's **59 lines of decision prose** were lifted into `DECISIONS.md` as
+    **D68–D73** rather than discarded with the conflict, measurements intact. Its lone
+    direct `hs.task.new` routed through `runTask` (D65). → **v51**; both feature sets verified
+    live in one build. **Task #1 closed by the merge**: the hook is now byte-identical to
+    the copy `settings.json` runs
