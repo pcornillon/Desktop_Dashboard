@@ -13,6 +13,18 @@ screen to confirm the panel appeared (step 5). Everything else can be done for y
 - macOS (built and used on an Intel Mac; should work on Apple Silicon too).
 - [Hammerspoon](https://www.hammerspoon.org) — free, open‑source, notarized.
   **No SIP changes required.**
+- `git`, for the git dot. Any Xcode Command Line Tools install provides it.
+- **`jq`, but only for the red dot** (`brew install jq`) — macOS does not ship it.
+  Everything else works without it. Get this wrong and there is no error to see:
+  `claude-dashboard-state.sh` guards every `jq` call, so on a machine without it the hook
+  writes **no state file at all and exits 0**, and the red dot simply never lights. If you
+  are wondering why yellow and green work and red doesn't, check this first.
+
+**Which terminal you run `claude` in matters.** Sessions are found by asking **Terminal.app**
+for its window titles, which is the only API that answers for Spaces you are not looking at.
+A session in iTerm, Ghostty, kitty or Cursor's built-in terminal **does not appear on the
+panel at all** — not as a Desktop line and not in the `T#` sessions list. The Desktop labels,
+the git dots and ⌘⌃⌥g all work regardless; it is only the session lines that need Terminal.
 
 ## Steps
 

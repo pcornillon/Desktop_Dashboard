@@ -190,3 +190,52 @@ written up as Task **#12**. Peter's question — *"Already open to TeXShop?"* �
 it; the audit that said "no" had never looked in the folder TeXShop lives in.
 
 TeXShop was launched only to measure it, and quit afterwards.
+
+## P5 · 2026-08-06 16:20 EDT · what is `jq`; push; and a colleague who doesn't use Terminal
+
+**Pushed both repos**, as asked. `Desktop_Dashboard` `487c8fa` (`v53`–`v55`, D76–D79, Tasks
+#8–#12, both session logs) and `claude-config` `7f36146` (D35 and the working-rule change).
+Only the paths this session touched were staged, per the concurrent-session rule.
+
+**`jq` explained**, since Peter asked what it is rather than answering: a small command-line
+JSON reader, not shipped with macOS. `claude-dashboard-state.sh` uses it to pull `.cwd` and
+`.session_id` out of the JSON Claude Code pipes to the hook, and to write the state file the
+red dot reads. Every call is guarded by `command -v jq`, so a machine without it degrades to
+**no state file at all, silently**. That is a footnote here and a real problem for a new
+install — which is what the second half of this prompt turned out to be about.
+
+**The colleague's problem: he runs claude in iTerm and Cursor, and the panel shows nothing.**
+His session's analysis was pasted in. **Checked it against the code rather than accepting
+it** — it is correct, and on the one point it understates the problem:
+
+- A session line comes only from the Terminal.app AppleScript poll (`CLAUDE_TITLE_SCRIPT`,
+  `if application "Terminal" is running`). Confirmed.
+- `sessionGroupsFor` reads `sessionsBySpace`, which is built from that poll; `claudeHooks`
+  only *colours* a line that already exists. Confirmed.
+- **It also applies to the `T#` list**, which his session did not say: `sessionEntries`
+  iterates the same `sessions` table, so a non-Terminal session is missing from the sessions
+  view too, not just from the Desktop lines. There is no view of the panel where it appears.
+- `readHookStates` collapses every hook file to `repo → state`, discarding per-session
+  identity — so even the data that *is* there is thrown away before anything could draw it.
+
+**What the hook files actually hold**, read from
+`~/.hammerspoon/claude_state/<session-id>.json`: `state`, `cwd`, `repo`, `at`, `message`.
+Terminal-agnostic — Claude Code writes them itself, from inside the session, whatever it is
+running in. Cursor sessions are already writing them on the colleague's machine.
+
+**Proposal drafted for Peter: a hook-only sessions list.** Keep the per-file records instead
+of collapsing them, and draw the ones the Terminal poll did not account for as `T#` lines
+with dots but **no Desktop line** — which respects D67 rather than bending it, since a hook
+file genuinely does not know which window it belongs to. Dedupe wants one small hook change:
+write `$TERM_PROGRAM` into the state file. **Verified in this session's own environment:
+`TERM_PROGRAM=Apple_Terminal`**, so the hook inherits it and the key is free.
+
+That helps iTerm, Ghostty, kitty, Cursor, VS Code and ssh sessions in one change. A separate,
+narrower option is extending the title poll to iTerm2 for real Desktop placement — **two
+things would have to be measured first and neither can be measured here** (no iTerm on this
+machine): whether iTerm2's AppleScript enumerates windows on inactive Spaces the way
+Terminal's does, and whether its window `id` is the same id `hs.spaces` uses, which D67 had
+to establish for Terminal.
+
+Nothing built — put to Peter as a choice between implementing it here and writing it up as
+an issue for the colleague to work from.

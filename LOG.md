@@ -155,3 +155,14 @@ invented index is worse than a short one.
     Verified live: its `main.tex` and `main.pdf` windows now name Desktop 5. **Task #8's
     audit was wrong** — it walked only the top level of `/Applications`, missing the whole
     `/Applications/TeX/` toolchain; redone and corrected in #12
+- ★ **P5** `1701_cornillon-laptop` · 2026-08-06 16:20 EDT · what is `jq`; push; and a
+  colleague whose sessions never appear
+  → pushed `487c8fa` here and `7f36146` in `claude-config`. `INSTALL.md` gained the two
+    prerequisites that were never written down — **`jq` for the red dot** (macOS ships none,
+    and the hook fails silently without it) and **Terminal.app for session lines**. Checked
+    the colleague's session's analysis against the code: correct, and it **understates** the
+    problem — the `T#` list is Terminal-only too, so there is no view where a Cursor or iTerm
+    session appears. Proposed a **hook-only sessions list** built from
+    `~/.hammerspoon/claude_state/*.json`, dots but no Desktop line, deduped on
+    `$TERM_PROGRAM` (verified present in the hook's environment). Nothing built — Peter's
+    call

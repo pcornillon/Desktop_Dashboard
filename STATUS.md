@@ -1,7 +1,7 @@
 # STATUS.md — Desktop Dashboard
 
 Living snapshot of where this project stands. Rewritten, not appended.
-Last updated: **2026-08-06 14:45 EDT** (`cornillon-laptop`).
+Last updated: **2026-08-06 16:30 EDT** (`cornillon-laptop`).
 
 ---
 
@@ -150,9 +150,21 @@ property of this project. Hardening it is a decision about the hook, not a clean
 - The `claude-config` half of session `8006f23a` (`4d4e6fb`) has no log in that repo.
   **D34** says it should have one; Peter has not been asked.
 
-**Uncommitted.** This machine is carrying `v53`–`v55`, D76–D79, Tasks #8–#12, two session
-logs including the reconstructed one, and — in `claude-config` — D35 and the working-rule
-change behind it. **The iMac has seen none of it.**
+**Pushed 2026-08-06:** `Desktop_Dashboard` `487c8fa` (`v53`–`v55`, D76–D79, Tasks #8–#12,
+both session logs) and `claude-config` `7f36146` (D35 and the working-rule change).
+**The iMac has not pulled either**, and it is the machine the cross-machine alert was built
+for.
+
+**Waiting on Peter — a colleague cannot use the panel at all.** He runs claude in iTerm and
+Cursor, and **no view of the panel shows a non-Terminal session**: the Desktop lines and the
+`T#` list are both built from the Terminal-only title poll, and `readHookStates` throws away
+per-session identity before anything could draw it. The proposal on the table is a
+**hook-only sessions list** — draw `T#` lines from `~/.hammerspoon/claude_state/*.json` for
+sessions the title poll did not account for, with dots but no Desktop line, which respects
+D67 instead of bending it. Dedupe wants one small hook change (`$TERM_PROGRAM` into the state
+file; verified present in the hook's environment). It covers iTerm, Ghostty, kitty, Cursor,
+VS Code and ssh in one change. **Nothing built** — Peter has to choose between building it
+here and writing it up as an issue for the colleague to work from.
 
 **Finder tags do not travel in git.** After pulling this repo on the other machine, run
 `~/Git_Repos/claude-config/tag-spine.sh ~/Git_Repos/Desktop_Dashboard`.
