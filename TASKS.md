@@ -60,7 +60,12 @@ state write so the alert can use it. This repo's copy has none of that.
 
 ## Task #2 — Consider measuring TeXShop's `AXDocument` read
 
-**Status:** todo
+**Status:** done (2026-08-06) — **measured, and TeXShop is in.** 0.23 ms cold / 0.09 ms warm
+against a 20-page `main.pdf`, 0.10 / 0.09 against `main.tex`, versus 0.10–0.20 for MacDown
+and 0.12–0.19 for Preview. Indistinguishable from the editors already on the list, so it was
+added rather than documented around: **D79**, `v55`. D32's live tension and the README gap
+it created are both closed. The original reasoning follows, unchanged, because it is the
+procedure for the next candidate.
 
 `D32`'s live tension. TeXShop is a real editor for these repos and is invisible to the
 pull's open-file check, so the check can report "nothing known to be open" while a
@@ -269,3 +274,147 @@ clean.
 **Settled 2026-08-04:** the evidence is any document under a repo root, not only `.md` —
 put back to Peter and confirmed. A repo PDF in Preview, a `.tex` or a spreadsheet is the
 same evidence as a `CLAUDE.md`: a document from that project, open here.
+
+
+## Task #8 — Fix the dead `M.docApps` key, and audit the rest of the list
+
+**Status:** done (2026-08-06)
+
+**The bug.** `M.docApps` listed `["MacDown 3000"]`. The app is called **`MacDown`** —
+verified live through the `hs` CLI: `hs.application.runningApplications()` reports
+`MacDown`, bundle `com.uranusjr.macdown`, `CFBundleName` `MacDown`, 0.7.3. `readSpaceFrom`
+asks a window for its document only when `M.docApps[app]` is set, so **no MacDown window
+was ever asked**, `projHits` stayed empty, and **D75**'s rule 1 could not fire. The Desktop
+fell through to the app rule and drew the MacDown icon instead of the project name.
+
+MacDown itself was never at fault: a scratch file opened in it returns
+`AXDocument = file:///…/macdown_probe.md`, so the path arrives intact once the key matches.
+
+**It has been wrong since the first commit** (`8ec045a`, `v15`) and was invisible until
+`v52`. Before **D75** a Desktop could still be named from a window title or a Finder path,
+so the dead key never cost anything visible. Making a document the *only* evidence exposed
+it. Fixed by adding `["MacDown"] = true`; `"MacDown 3000"` is kept alongside it, in case
+the iMac's copy really is named that.
+
+**The audit**, on `cornillon-laptop` 2026-08-06: every key compared against the `.app`
+bundles in `/Applications`, `/System/Applications` and `~/Applications`. The name macOS
+reports is the bundle's **display** name — the `.app` filename — not `CFBundleName`, which
+is why `Microsoft Word` is right where `CFBundleName` says `Word`.
+
+| `M.docApps` key | Installed here | Verdict |
+|---|---|---|
+| `MacDown 3000` | `MacDown.app` | **wrong — the bug above**, now joined by `MacDown` |
+| `Code` | — | dead; it is VS Code's `CFBundleName`, never its reported name. Harmless, kept |
+| `Visual Studio Code`, `CLion`, `Aquamacs`, `Preview`, `Microsoft Word`, `Microsoft Excel`, `Pages`, `Numbers`, `Keynote`, `TextEdit`, `Xcode`, `Sublime Text` | yes | correct |
+| `PyCharm`, `Emacs`, `BBEdit`, `Nova` | not on this machine | can't be checked here; left alone |
+
+**Installed and document-bearing but absent from the list** — not added, since every entry
+costs an AX read per window (**D5**): the eight `MATLAB_R20xx` bundles (each reports its
+own versioned name, so they need eight keys or a pattern), `Microsoft PowerPoint` — odd
+company for Word, Excel and Keynote, which are all in — `OmniGraffle`, `draw.io`, `yEd`,
+`Papers`, `Inkscape`, `Dia`, `Eclipse`, `R`.
+
+
+## Task #9 — A ⌘⌃⌥N name belongs to a project, not to a Desktop (revises #5)
+
+**Status:** done (2026-08-06)
+
+Recorded as **D76**, which supersedes **D16**. Asked for 2026-08-06, after Task #8's diagnosis showed
+the two problems were connected: a Desktop was showing `3-way analysis` with nothing open
+on it, and the override was also what would have hidden the MacDown fix even after it
+landed.
+
+- ⌘⌃⌥N renames the **project** on every line — the session group's (**D67**) or the
+  top-ranked project whose documents are open there (**D75**).
+- On a Desktop with neither, it refuses with an alert instead of naming the Desktop.
+- The `overrides` table, its `manual` flag on disk and its restore path are **deleted**.
+  A pre-`v53` override is skipped on load, so it disappears at the first launch.
+- ⌘⌃⌥N calls `scanActive` before deciding, so a document opened since the last read counts.
+
+**Verified:** the file loads clean in a sandboxed `dofile` and reports `v53`; no reference
+to `overrides` survives outside the migration comment. **Not yet exercised live** — that
+needs a Reload Config on Peter's machine.
+
+
+## Task #10 — Work on a machine with no Dropbox, and stop the header contradicting INSTALL.md
+
+**Status:** done (2026-08-06)
+
+Both came out of Peter's question *"what is required on a computer running the Dashboard
+other than this folder and Hammerspoon?"*, which the answer could not be given cleanly
+without admitting two faults.
+
+1. **`M.showRemoteAlerts` now auto-disables** where no synced folder exists (**D77**). The
+   receiving half of the cross-machine alert was on by default against a hard-coded
+   `~/Dropbox/…` path, so a Dropbox-less machine polled a directory that could not exist
+   every 20 s for the life of the session, plus a path watcher that never attached. Both
+   were `pcall`-wrapped, so it cost nothing visible — which is why it would never have been
+   noticed. `remoteAlertsPossible()` accepts the directory **or its parent**, so a syncing
+   machine that has never received an alert still watches for one.
+2. **The `INSTALL` block in the code no longer contradicts `INSTALL.md`** (**D78**). Step 3
+   said "Copy this file to `~/.hammerspoon/desktop_dashboard.lua`" — the stale-copy bug of
+   2026-07-27 written down as advice, and the opposite of `INSTALL.md`, `CLAUDE.md` and
+   **D64**. It now says clone-and-`package.path`, and says not to copy.
+
+**Not changed:** the `jq` dependency. Without `jq` on the hook's `PATH`,
+`claude-dashboard-state.sh` writes no state file and exits 0, so the red dot silently never
+lights; on this laptop `jq` resolves to `~/opt/anaconda3/bin/jq`, which is not a property of
+this project. Reported to Peter, not fixed — hardening it is a decision about the hook, not
+a cleanup.
+
+`v53` → **`v54`**.
+
+
+## Task #11 — Reconstruct the session log for `8006f23a`
+
+**Status:** done (2026-08-06)
+
+Session `8006f23a` ran 2026-08-03 20:58–22:47 EDT on `cornillon-laptop`, produced **v47–v50**
+and the `claude-config` commit `4d4e6fb`, and **opened no session log at all**. Found by the
+SessionStart hook's log-debt report; rebuilt on Peter's instruction as
+`SESSIONS/2026-08-03_2058_EDT_cornillon-laptop.md`.
+
+**Sources are named in the file's header and separated by what each can support:** prompt
+text and every timestamp from the session's own JSONL (authoritative about what was asked
+and when); outcomes quoted from the Stop hook's prose log at
+`~/Dropbox/claude/transcripts/8006f23a-….md`, which is the assistant's account at the time
+rather than a later recollection; commits from `git log`. Where the record is silent — for
+instance whether the fake-marker test was ever run — the file says so instead of guessing.
+
+**Two things it surfaced that are still open:**
+
+- The `claude-config` half of that session (`4d4e6fb`) has **no log in that repo** either.
+  **D34** says it should have one, or a `LOG.md` line there pointing at this file. Not done:
+  that is a second repo and Peter has not been asked.
+- `LOG.md` here is append-only and chronological, so the eight 2026-08-03 prompts cannot be
+  slotted into place without either breaking that rule or rewriting history. A single
+  pointer line was appended at the end instead, and the reconstruction itself carries the
+  detail.
+
+
+## Task #12 — Add the four editors, and redo the allowlist audit properly
+
+**Status:** done (2026-08-06)
+
+`TeXShop`, `BibDesk`, `Microsoft PowerPoint` and `OmniGraffle` added to `M.docApps`
+(**D79**, `v55`). Verified live: after a reload, TeXShop's two windows on Desktop 5 report
+`LATEX/main.tex` and `LATEX/main.pdf` and count toward that Desktop's name, where before the
+reload they reported nothing.
+
+**Task #8's audit was incomplete, and this is the correction.** It walked only the top level
+of `/Applications`, `/System/Applications` and `~/Applications`, so it missed every app in a
+subfolder — which on this machine is where the entire TeX toolchain lives. Redone with
+`find -maxdepth 3`, the apps it had not seen are:
+
+| Folder | Apps |
+|---|---|
+| `/Applications/TeX/` | **TeXShop**, **BibDesk**, LaTeXiT, TeX Live Utility |
+| `/Applications/Adobe Acrobat DC/`, `/Applications/Adobe Acrobat 2015/` | Adobe Acrobat, Acrobat Distiller |
+| `/Applications/Cisco/`, `/Applications/Python 3.11/`, `/Applications/Utilities/` | Cisco Secure Client, IDLE, Python Launcher, XQuartz |
+
+**Adobe Acrobat was deliberately left out**: Preview is already on the list and is what opens
+repo PDFs here. Say so if Acrobat should join it.
+
+**The lesson is the audit method, not the list** — an allowlist keyed on an app's reported
+name can only be checked against apps you actually enumerate, and enumerating one directory
+level is not enumerating the machine.

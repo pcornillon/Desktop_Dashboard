@@ -4,7 +4,7 @@
 git state.
 **Produces:** `desktop_dashboard.lua` — a single-file tool loaded from
 `~/.hammerspoon/init.lua` — plus `claude-dashboard-state.sh`, its Claude Code hook.
-**State:** v52, working and in daily use; see `STATUS.md`.
+**State:** v55, working and in daily use; see `STATUS.md`.
 
 Context for AI coding sessions on this repo. Read this before changing
 `desktop_dashboard.lua`. `README.md` is the user-facing install/usage doc; **`DECISIONS.md`
@@ -18,7 +18,7 @@ design ruling lives there as a numbered `D##`.
 | `CLAUDE.md` (this file) | what the project is, the architecture, the layout |
 | `STATUS.md` | where things stand right now, ending in the **active thread** |
 | `LOG.md` | one line per prompt — scan this to see what has been done |
-| `DECISIONS.md` | **D1–D75** — every design ruling and the measurement behind it |
+| `DECISIONS.md` | **D1–D79** — every design ruling and the measurement behind it |
 | `TASKS.md` | the work list: numbered tasks with `Status:` lines |
 
 ## What this project is
@@ -41,7 +41,7 @@ The module returns a table `M` with a `CONFIG` block at the top and `M.start()` 
 ```
 CLAUDE.md               this file — project context, architecture, layout
 STATUS.md               where things stand + active thread
-DECISIONS.md            D1–D75 — every design ruling, with its measurement
+DECISIONS.md            D1–D79 — every design ruling, with its measurement
 TASKS.md                numbered work list with Status: lines
 LOG.md                  append-only one-line-per-prompt index
 README.md               human-facing overview, controls, config, limitations
@@ -105,8 +105,15 @@ two lines under one `Desktop N`, and a Desktop running three in one repo draws o
 
 A Desktop with at least one session shows **only** those lines. Its dots are that group's:
 yellow if any of its sessions is computing, red if the hooks say the repo wants you, green
-if one finished unseen. ⌘⌃⌥N there renames the **project**, globally, and the per-Desktop
-override is not consulted.
+if one finished unseen.
+
+**⌘⌃⌥N renames a project, never a Desktop (D76).** On a session line it is that group's
+project; on a Desktop with no session it is the top-ranked project whose documents are open
+there; on a Desktop with neither it refuses and says why. The name is stored against the
+project, so it reads the same wherever the project appears and leaves a Desktop as soon as
+the project does. **There is no per-Desktop override any more** — `overrides`, its `manual`
+flag on disk and its restore path are gone with D16, because that name outlived the windows
+it described and hid every later reading from the panel.
 
 **Otherwise `detectLabel(funcs, claudeCwd, projHits)` decides**, and the first rule is a
 count rather than a match:
@@ -140,7 +147,7 @@ minimized session window reports no Space, so it gets no Desktop line — it is 
 
 ## Where the design rulings live
 
-They are **not** in this file. `DECISIONS.md` holds all 75, with the measurements intact —
+They are **not** in this file. `DECISIONS.md` holds all 79, with the measurements intact —
 the ~40 ms `hs.window.get` cost, the 750-sample dot study, the Menlo 13 glyph widths, the
 observation dates. The ones most likely to be violated by accident:
 
@@ -148,6 +155,7 @@ observation dates. The ones most likely to be violated by accident:
 |---|---|
 | the read path | **D4** (one snapshot per read), **D5** (`docApps` allowlist), **D3** (active Space only) |
 | label detection | **D67** first — it rewrote what names a Desktop; then **D7**–**D9**, **D13**, four false positives from matching repo names in free text |
+| naming by hand (⌘⌃⌥N) | **D76** — a name belongs to a project, never to a Desktop; it supersedes **D16** |
 | the claude dot | **D67** (a session belongs to the Desktop its WINDOW is on), then **D17**–**D19** — what the terminal title can and cannot tell you |
 | the ⌘⌃⌥g pull | **D30**–**D36** — the only code here that writes to a repository |
 | drawing / icons | **D40**–**D59**, and **D68**–**D71** for the clickable legend |
@@ -157,6 +165,15 @@ observation dates. The ones most likely to be violated by accident:
 These are platform facts rather than choices, which is why they are here and not in
 `DECISIONS.md`.
 
+- **A wrong key in `M.docApps` fails silently and for ever.** The key must be the app's own
+  name as macOS reports it — check it against `hs.application.runningApplications()`, not
+  against the menu bar or the `.app` filename, and not against `CFBundleName` either
+  (Word's is `Word`, Chrome's is `Chrome`). A key that matches nothing means that app is
+  never asked for its document, so it can never name a Desktop; there is no warning, and
+  the Desktop just falls through to its icon row. `["MacDown 3000"]` was in the list from
+  the first commit and cost nothing visible until **D75** made a document the *only*
+  evidence — then MacDown, the editor Peter reads every `.md` in, stopped naming anything.
+  **Symptom to recognise:** one particular editor never names a Desktop while others do.
 - **Keep a live reference to any `hs.timer.doAfter` whose callback must run.** A pending
   timer with nothing referencing it can be garbage-collected before it fires — no error,
   no log, it just never happens. The ⌘⌃⌥s walk chains one `doAfter` per Desktop, and with

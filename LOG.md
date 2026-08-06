@@ -114,3 +114,44 @@ invented index is worse than a short one.
   → confirms D75's one open point; **no code change** — that is what `v52` already does.
     D75's live tension replaced with the settled ruling and a "do not narrow this without
     asking" note; Task #7's open line closed
+- ★ **P1** `1701_cornillon-laptop` · 2026-08-05 17:12 EDT · a Desktop keeps a name it should
+  have lost, and MacDown never names one
+  → two causes, both measured, **no code change yet**. The sticky name is `overrides[sid]`
+    from ⌘⌃⌥N — it beats detection for ever and is in the state JSON as
+    `manual true, windows []`. The missing one is a dead allowlist key: `M.docApps` has
+    `"MacDown 3000"` and the app is called **`MacDown`** (verified via the `hs` CLI), so no
+    MacDown window is ever asked for its document and **D75**'s rule 1 cannot fire.
+    `AXDocument` itself works — probed live. Dead since `8ec045a`; invisible until D75 made
+    a document the only evidence
+- ★ **P2** `1701_cornillon-laptop` · 2026-08-06 11:19 EDT · fix MacDown, audit the allowlist,
+  and give the name to the project
+  → **v53**, **D76**, Tasks **#8** and **#9**. `["MacDown"]` added to `M.docApps` — the key
+    was `"MacDown 3000"`, so that editor could never name a Desktop; the rest of the list
+    audited against the installed bundles. ⌘⌃⌥N now renames a **project** on every line and
+    refuses where there is none: the `overrides` table, its `manual` flag and its restore
+    path are deleted (D76 supersedes **D16**), and skipping `manual` on load is the
+    migration. Verified only by a sandboxed load — **nothing exercised live yet**
+- ★ **P3** `1701_cornillon-laptop` · 2026-08-06 12:47 EDT · what does it depend on? → two
+  faults, then reload and test
+  → **v54**, **D77**, **D78**, Tasks **#10** and **#11**. Answering "does this need Dropbox?"
+    (no) turned up a Dropbox-less machine polling a phantom directory every 20 s for ever,
+    and an `INSTALL` block in the code telling you to do the thing that caused the
+    stale-copy bug. Both fixed. **Then the first live run of v53/v54**: MacDown's documents
+    are read — the same two windows saved `doc=''` under v52 and full repo paths under v54 —
+    and Desktops 7 and 8 went from `MacDown` to `MODIS_L2_Manuscript` and
+    `three-way_SST_error_analysis_manuscript`. The manual override is gone from the state
+    file and `3-way analysis` with it
+- **NOTE** · 2026-08-06 · session `8006f23a` (2026-08-03, 8 prompts, `v47`–`v50`) never
+  opened a log; it was reconstructed on this date as
+  `SESSIONS/2026-08-03_2058_EDT_cornillon-laptop.md`. Its eight entries are **not** inserted
+  above: this file is append-only and chronological, and back-dating them would break both.
+  Task **#11**
+- ★ **P4** `1701_cornillon-laptop` · 2026-08-06 14:32 EDT · fewer asks; and TeXShop, at last
+  → **v55**, **D79**, Tasks **#2** (closed after five days) and **#12**; **D35** in
+    `claude-config`, which rewrites the ask rule — responses now carry a `DECISIONS` section
+    above the asks and what is in it is treated as agreed. TeXShop's `AXDocument` **measured
+    at 0.10–0.23 ms**, the same as MacDown and Preview, so it joined `M.docApps` with
+    BibDesk, PowerPoint and OmniGraffle, closing D32's live tension and the README gap.
+    Verified live: its `main.tex` and `main.pdf` windows now name Desktop 5. **Task #8's
+    audit was wrong** — it walked only the top level of `/Applications`, missing the whole
+    `/Applications/TeX/` toolchain; redone and corrected in #12

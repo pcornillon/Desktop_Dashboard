@@ -36,7 +36,7 @@ able to distinguish magenta from white.
 | line in the figure | what it means |
 |---|---|
 | `Desktop 5 → opendap-registry` + 2 icons | a repo, detected from what's open on it, followed by the apps sitting there |
-| `Desktop 4 → 3-way analysis` + 5 icons | the same thing, but with a name typed by hand (⌘⌃⌥n). Renaming replaces **only** the name — the icons still report what's actually there |
+| `Desktop 4 → 3-way analysis` + 5 icons | the same thing, but with the *project* renamed by hand (⌘⌃⌥n). Renaming replaces **only** the name — the icons still report what's actually there |
 | `Desktop 1`, `2`, `3`, `6` … (icons only) | nothing here names *work*, so the icons are the answer. These would otherwise read `Utility`, `Communication` or a bare app name — words that told you almost nothing |
 | `Desktop 12 → ` one icon | a single app owns this Desktop, so its icon says it |
 
@@ -138,7 +138,7 @@ changes.
 - **Drag the panel** anywhere; each display remembers where you put it.
 - **Auto-refreshes** on window open/close, Desktop switch, and a periodic backstop; the
   session dots poll faster still (~3 s).
-- **Custom names** (⌘⌃⌥n) override auto-detection and are remembered.
+- **Custom names** (⌘⌃⌥n) rename a *project*, wherever it appears, and are remembered.
 - **Remembers** your view, panel position, size, Desktop names **and app icons** across
   reloads and reboots, and says how many Desktops it hasn't read first-hand yet.
 
@@ -199,21 +199,27 @@ restarting Hammerspoon to load the config, works from a shell.
 |----------|--------|
 | Click a line | Switch to that Desktop |
 | ⌘⌃⌥ d | Show / hide the panel **on the display your mouse is on** |
-| ⌘⌃⌥ n | Name the current Desktop yourself |
+| ⌘⌃⌥ n | Rename the project this Desktop is showing |
 | ⌘⌃⌥ r | Restore the saved window layout (move/open windows to match) |
-| ⌘⌃⌥ s | Visit every Desktop once and label the ones you haven't named |
+| ⌘⌃⌥ s | Visit every Desktop once and label them all |
 | ⌘⌃⌥ m | Cycle what the panel lists: Desktops / claude sessions / both |
 | ⌘⌃⌥ g | Pop up each shown repo's GitHub status (on demand; only this hits the network) |
 | Drag the panel | Move it anywhere; the position is remembered per display |
 
-**A name you type yourself sticks.** It beats whatever the dashboard would have worked
-out, and ⌘⌃⌥s will not overwrite it — that's the point of setting one. To go back to
-automatic labeling, press ⌘⌃⌥n on that Desktop again and submit an **empty** name.
+**A name you type yourself belongs to the project, not to the Desktop.** ⌘⌃⌥n renames
+whatever project the line is showing — the claude session running there, or the project
+whose documents are open there — and that name then reads the same *wherever* the project
+appears. It travels when you move the work to another Desktop, and it goes away on its own
+when the project has nothing on that Desktop any more. Press ⌘⌃⌥n on it again and submit
+an **empty** name to get the repo's real name back.
 
-Behind the scenes a scan still works out the automatic label for a Desktop you've named,
-it just doesn't show it. So clearing your name reveals a current label, not a stale one —
-and the session dot keeps working, because it follows the detected repo rather than the
-name you typed.
+On a Desktop with no session and no open document there is nothing to rename, and ⌘⌃⌥n
+says so rather than naming the Desktop itself. Naming Desktops was how it worked until
+`v53`, and the name outlived what it described: a Desktop kept reading `3-way analysis`
+after everything on it was closed, and hid the real label from every later scan.
+
+The session dot is unaffected by a rename — it follows the detected repo, not the name you
+typed.
 
 **Hiding is per display.** With two screens the panel is drawn on each, so ⌘⌃⌥D hides
 only the one your mouse is on — press again there to bring it back, or call
@@ -409,7 +415,7 @@ Desktop named after a repo or a session directory, because that name came from t
 terminal's own working directory — the icon would just say it twice.
 
 **⌘⌃⌥n renames the name only.** The icons report what's actually on the Desktop, which
-renaming it can't change.
+renaming the project can't change.
 
 A mixed Desktop needs at least **two** resolvable app icons before the row replaces the
 word: one icon standing in for three apps would claim the others aren't there, and
@@ -563,13 +569,16 @@ it only ever fast-forwards, so it cannot lose committed work or leave you in a h
 state. What deserves attention is everything *around* it:
 
 **The open-file check can't see every editor.** It knows about the editors listed in
-`M.docApps` — MacDown, VS Code, TextEdit, Preview, Word and the rest — and only for
-Desktops the panel has actually read since Hammerspoon started. **TeXShop is not on that
-list** and is invisible to the check, as are Electron-based editors. TeXShop is left off
-deliberately: asking some apps for their open document is slow enough to stall the whole
-panel, which is the reason `M.docApps` is an allowlist rather than "everything". So treat
-a clean check as *nothing known to be open*, never as *nothing is open* — if you have a
-file open in TeXShop, the panel doesn't know, and it's on you to close it.
+`M.docApps` — MacDown, VS Code, TeXShop, TextEdit, Preview, Word and the rest — and only
+for Desktops the panel has actually read since Hammerspoon started. **Electron-based
+editors are invisible to it**, because asking some apps for their open document is slow
+enough to stall the whole panel, which is why `M.docApps` is an allowlist rather than
+"everything". So treat a clean check as *nothing known to be open*, never as *nothing is
+open*.
+
+TeXShop used to be the notable gap here and no longer is: its `AXDocument` read was measured
+at 0.10–0.23 ms — the same as MacDown and Preview — and it went on the list. That is the
+procedure for any editor you want to add: **measure first**, then add.
 
 **An idle claude session doesn't block the pull.** Only a session that's actively working
 does (the yellow dot). A session sitting at a prompt is fine to pull under — it re-reads
@@ -617,7 +626,8 @@ both under the same `Desktop N`:
 
 Clicking one of those lines raises that project's terminal window. Where a project has
 several sessions there, clicking again takes the next one. ⌘⌃⌥N on such a line renames the
-**project**, and it then reads that way everywhere it appears.
+**project**, and it then reads that way everywhere it appears — as it does on every other
+kind of line too, since a name always belongs to a project rather than to a Desktop.
 
 **A Desktop with no session is named after the projects whose documents are open on it**,
 in plain white.
@@ -631,7 +641,10 @@ the **two** projects with the most are shown, joined with ` / `. Such a line car
 dots at all**: there is no session on it, and a dot would say there was.
 
 Only the apps in `M.docApps` report an open document, so that list is exactly the set that
-can name a Desktop this way.
+can name a Desktop this way. **A key there is the app's name as macOS reports it, and a
+wrong one fails silently** — the app is simply never asked, so it never names anything. If
+an editor you use never names a Desktop, check its spelling there first: `MacDown` sat in
+the list as `MacDown 3000` from the first release until `v53`.
 
 **Failing both**, it is named after **the apps themselves** — shown as their
 **icons** ([App icons](#app-icons)). The words behind that row, which is what you see with

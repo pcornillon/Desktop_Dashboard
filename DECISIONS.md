@@ -70,7 +70,8 @@ during the migration.
   MATLAB, …) **can stall for minutes**.
 - **Where:** `M.docApps`, rule 1 of `detectLabel`.
 - **Do not add slow apps to `docApps`.** See D30 for the cost this allowlist imposes on
-  the pull precheck, and why TeXShop was still left off it.
+  the pull precheck. TeXShop was left off it for exactly this reason until **D79** measured
+  the read (0.10–0.23 ms) and let it in — which is the procedure, not an exception to it.
 
 ---
 
@@ -362,7 +363,11 @@ during the migration.
   - **The precheck talks to the network too**, so it carries the same watchdog as the
     pull. Without one, a wedged fetch leaves `pullPrecheckTask` set and every later click
     reports "a pull is already running".
-- **Live tension — TeXShop is knowingly outside the check, and was left that way
+- **Live tension RESOLVED 2026-08-06 by D79** — TeXShop's `AXDocument` read was measured at
+  0.10–0.23 ms, indistinguishable from MacDown and Preview, so it is in `M.docApps` and
+  inside the check. The reasoning that kept it out for five days is preserved below because
+  it is the procedure for the next candidate, not a mistake:
+- **TeXShop is knowingly outside the check, and was left that way
   (2026-08-01).** It is a real editor for this user's repos, so the gap is real. But
   `docApps` is an allowlist precisely because asking some apps for `AXDocument` can stall
   the panel for minutes (D5), and **TeXShop has never been measured**. Adding it would
@@ -985,3 +990,115 @@ change tense to stand alone.
   not narrow this to an extension** without asking — it was considered and rejected.
 - **Where:** `M.sessionColor`, `projectOfWindow`, `detectLabel`, `readSpaceFrom`,
   `screenEntries` — `v52`.
+
+### D76. A name belongs to a project, never to a Desktop
+- **Decision:** ⌘⌃⌥N always renames a **project**, on every line rather than only on a
+  session line. The project is the session group's when a session runs there (**D67**,
+  unchanged), otherwise the top-ranked project whose documents are open there (**D75**).
+  On a Desktop with neither, ⌘⌃⌥N **refuses** and says why. The per-Desktop override of
+  **D16** is deleted: the `overrides` table, its Space-ID key, its `manual` flag on disk,
+  and its restore path.
+- **Why:** the override outlived everything it described. Observed on the laptop
+  2026-08-05 and decided 2026-08-06, and it is three failures rather than one:
+  1. It **survived the windows closing.** A Desktop with nothing open on it read
+     `3-way analysis` after a reboot — the saved entry is `name "3-way analysis",
+     manual true, windows []`.
+  2. It **hid every later reading.** `screenEntries` consulted `overrides[sid]` before the
+     detected label, so opening a document from another project there changed nothing on
+     the panel. There was no way to tell a stale name from a correct one.
+  3. It **followed the Desktop through a reorder** in-session (keyed by Space ID) but
+     comes back by **screen + position** across a reboot — so the two keys D16 chose
+     deliberately disagree with each other the moment you reorder Desktops and quit.
+- **Why a project is the right owner:** a name is an alias for the *work*, and the work is
+  what moves. `projectNames` already made a session's rename global and durable (D67); this
+  applies the same rule to the other kind of line, so a name appears wherever its project
+  appears and **disappears from a Desktop when the project has nothing there any more** —
+  which is what Peter asked for: *"check to see if a Desktop with no claude running and the
+  other condition, which writes the project name, to which the current name applies is
+  present. If neither of these, remove the name."*
+- **⌘⌃⌥N now reads the Desktop before deciding.** It calls `scanActive` first: the focused
+  Space is by definition active, and without it a Desktop whose documents were opened since
+  the last read would look empty and refuse a name it can serve.
+- **Migration is automatic and one-way.** `restoreNames` skips any saved name carrying
+  `manual`, so a pre-`v53` override disappears on the first launch after the upgrade rather
+  than lingering with no way to clear it. Existing overrides are **not** promoted to project
+  names — the same reasoning as Task #5's: an override was a word for a *Desktop*, and
+  promoting it to a global project name changes what it claims.
+- **Supersedes D16 entirely**, and closes the "⌘⌃⌥N anywhere else keeps the per-Desktop
+  override of D16" clause in **D67**.
+- **Live tension:** a Desktop holding neither a session nor a document — a Utility Desktop,
+  or an empty one being kept for later — can no longer be given a name at all. That is the
+  deliberate cost: every name the panel shows is now something it can verify, and the
+  alternative is the stale name above. Revisit only with a rule for **when such a name
+  expires**, since "never" is what was just removed.
+- **Where:** `renameProject`, `M.nameCurrent`, `screenEntries`, `M.saveLayout`,
+  `restoreNames` — `v53`.
+
+### D77. No synced folder, no polling
+- **Decision:** `M.showRemoteAlerts = true` means "watch for remote alerts **if that is
+  possible on this machine**". `M.start` arms the 20 s timer and the path watcher only when
+  `M.remoteAlertDir` **or its parent** exists; otherwise neither is created and the feature
+  is silently absent. The check runs **once, at start**, so installing the sync client later
+  needs a Reload Config.
+- **Why:** the receiving half of the cross-machine alert (**D72**) was on by default with a
+  hard-coded `~/Dropbox/…` path, so a machine with no Dropbox ran a timer re-reading a
+  directory that could not exist, plus a path watcher that had failed to attach, for the
+  life of the session. Both are `pcall`-wrapped, so it was invisible rather than broken —
+  which is the argument for fixing it rather than leaving it: **an unnoticed cost is the one
+  that never gets removed.** Asked for by Peter on 2026-08-06 — *"auto-disable so to work
+  with Dropbox-less machines"* — after asking what the project depends on.
+- **Why the PARENT counts, not just the directory:** the marker folder is created by the
+  first alert that arrives, so its absence proves nothing on a machine that does sync. Its
+  parent's absence does. Accepting the parent is what lets a Dropbox machine that has never
+  received an alert still watch for one.
+- **Rejected: making the path configurable and defaulting it off.** That trades a silent
+  no-op for a setting nobody would find, and D73 already established that the *sending*
+  half is opt-in through a config file. The receiving half should cost nothing and need no
+  decision.
+- **Where:** `remoteAlertsPossible`, `M.showRemoteAlerts`'s comment, `M.start` — `v54`.
+
+### D78. The install steps in the code must not contradict INSTALL.md
+- **Decision:** the `INSTALL` block in `desktop_dashboard.lua`'s header says **clone the repo
+  and point `package.path` at it**, and says in as many words not to copy the file into
+  `~/.hammerspoon`. It previously said *"Copy this file to
+  ~/.hammerspoon/desktop_dashboard.lua"*.
+- **Why:** that instruction was the stale-copy bug of 2026-07-27 written down as a
+  recommendation. `INSTALL.md`, `CLAUDE.md` and **D64** all say the opposite — the code stays
+  where the repo is, because `~/.hammerspoon/init.lua` and `~/.claude/settings.json` name
+  these files by path. **Anyone installing from the file rather than the docs walked into the
+  bug**, and the file is the more likely thing to be read first: it is what you have open
+  when you are changing the tool.
+- **Where:** the header comment block of `desktop_dashboard.lua` — `v54`.
+
+### D79. TeXShop is in `docApps` — the read was measured at last
+- **Decision:** `TeXShop`, `BibDesk`, `Microsoft PowerPoint` and `OmniGraffle` join
+  `M.docApps`. TeXShop's `AXDocument` read was **measured first**, as D32 demanded.
+- **The measurement, 2026-08-06 on `cornillon-laptop`**, via the `hs` CLI against the live
+  Hammerspoon, two reads per window (cold then warm):
+
+  | app | window | cold | warm |
+  |---|---|---|---|
+  | TeXShop | `main.pdf` (20 pages) | 0.23 ms | 0.09 ms |
+  | TeXShop | `main.tex` | 0.10 ms | 0.09 ms |
+  | MacDown | three windows | 0.10–0.20 ms | 0.09–0.10 ms |
+  | Preview | four windows | 0.12–0.19 ms | 0.09–0.10 ms |
+
+  **TeXShop is indistinguishable from the editors already on the list.** D5's fear was
+  Electron/Office/Java apps stalling for minutes; TeXShop is a native Cocoa document app and
+  behaves like one. The `.tex` measured is small (5.4 KB) — the 20-page PDF alongside it is
+  the closest thing to a large document in the sample, and it was the same 0.09 ms warm.
+- **This closes D32's live tension and the README gap it created.** The pull precheck can
+  now see a LaTeX file open in TeXShop, which was the whole point: *"treat a clean check as
+  nothing known to be open, never as nothing is open"* was a documented blind spot in the
+  one repo type Peter writes manuscripts in.
+- **TeXShop contributes TWO window-votes for one open document** — the source and its PDF
+  preview are separate windows and both report a path under the repo. That is harmless and
+  arguably right: `rankProjects` counts windows, and a Desktop with TeXShop open on a
+  manuscript really is more about that manuscript than a Desktop with one file open.
+- **The other three were not measured**, and are on a weaker footing: `BibDesk` is native
+  Cocoa like TeXShop and completes the LaTeX toolchain (`.bib` under `LATEX/bib/`);
+  `Microsoft PowerPoint` joins Word and Excel, which have been on the list without incident;
+  `OmniGraffle` is a native document app. **If the panel ever stalls, these are the first
+  four things to pull back out**, and D5's warning stands unchanged for everything else.
+- **Where:** `M.docApps`, D5's closing note, D32's live tension, README's "What to be careful
+  about" — `v55`.

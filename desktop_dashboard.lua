@@ -24,18 +24,27 @@
   1. brew install --cask hammerspoon   (or hammerspoon.org)
   2. Launch it; grant Accessibility (System Settings → Privacy & Security
      → Accessibility → Hammerspoon ON).
-  3. Copy this file to  ~/.hammerspoon/desktop_dashboard.lua
-  4. In  ~/.hammerspoon/init.lua :
+  3. Clone the repo wherever you keep your projects. DO NOT COPY THIS FILE INTO
+     ~/.hammerspoon — a copy there and the repo drift apart, and you then edit
+     one while Hammerspoon loads the other. That is the stale-copy bug of
+     2026-07-27; see PRE_CONVERSION/STATUS.md.
+  4. In  ~/.hammerspoon/init.lua , point Lua's search path at the clone:
+        package.path = package.path .. ";" ..
+          os.getenv("HOME") .. "/Git_Repos/Desktop_Dashboard/?.lua"
         local dd = require("desktop_dashboard")
         dd.start()
+     (A symlink into ~/.hammerspoon works too — it is still one file.)
   5. Hammerspoon menubar (hammer icon) → Reload Config.
+
+  INSTALL.md carries the same steps with the permissions and the hook setup.
 
   CONTROLS  (the letters are LOWERCASE — the binds are cmd+ctrl+alt+<key>,
              so adding shift, i.e. an uppercase letter, does NOT trigger them)
   --------
   • Click a line — switch to that Desktop.
   • ⌘⌃⌥ d — show / hide the dashboard.
-  • ⌘⌃⌥ n — name the current Desktop (blank clears it).
+  • ⌘⌃⌥ n — rename the PROJECT this Desktop shows (blank clears it). It is
+    never a name for the Desktop itself — see D76.
   • ⌘⌃⌥ r — restore the saved window layout (move/open windows).
   • ⌘⌃⌥ s — walk every Desktop once and label them all.
   • ⌘⌃⌥ m — cycle what the panel lists: Desktops / claude sessions / both.
@@ -52,11 +61,12 @@
   told apart by position.
 
   Each line is a NAME and an ICON ROW. The name says what the Desktop is for (a
-  repo, or a name you set with ⌘⌃⌥n); the icons say what is on it, Finder and
-  terminals last. A Desktop whose label would only name apps (Utility, or one
-  app's own name) drops the word and shows just the icons. Point at an icon to
-  see which app it is and which window you'd get; click it to go to that Desktop
-  AND raise that window (clicking the line just goes to the Desktop).
+  repo, under any name you gave that project with ⌘⌃⌥n); the icons say what is
+  on it, Finder and terminals last. A Desktop whose label would only name apps
+  (Utility, or one app's own name) drops the word and shows just the icons.
+  Point at an icon to see which app it is and which window you'd get; click it
+  to go to that Desktop AND raise that window (clicking the line just goes to
+  the Desktop).
 
   Drag the grip in the bottom-right corner to resize the whole panel.
 
@@ -65,7 +75,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v52 (only a live session is coloured; only a document names a project, 2026-08-04)"
+M.version = "v55 (TeXShop, BibDesk, PowerPoint and OmniGraffle can name a Desktop too, 2026-08-06)"
 
 -- ============================ CONFIG ============================
 
@@ -249,13 +259,27 @@ M.categories = {
 -- detection). Everything else is labeled by category/name — this avoids the
 -- slow accessibility queries to Electron/Office apps (Slack, OneNote, Teams…)
 -- that were causing multi-minute hangs.
+--
+-- A KEY HERE IS AN APP'S OWN NAME AS macOS REPORTS IT, and a wrong one fails
+-- silently: the app is simply never asked for a document, so it can never name
+-- a Desktop. `["MacDown 3000"]` was that mistake — the app is called `MacDown`
+-- — and it sat here undetected from the first commit, because until D75 a
+-- Desktop could still be named from a window title. Check a new entry against
+-- `hs.application.runningApplications()`, not against the menu bar.
 M.docApps = {
-  ["MacDown 3000"] = true, ["Visual Studio Code"] = true, ["Code"] = true,
+  ["MacDown"] = true, ["MacDown 3000"] = true,
+  ["Visual Studio Code"] = true, ["Code"] = true,
   ["CLion"] = true, ["PyCharm"] = true, ["Aquamacs"] = true, ["Emacs"] = true,
   ["Preview"] = true, ["Microsoft Word"] = true, ["Microsoft Excel"] = true,
   ["Pages"] = true, ["Numbers"] = true, ["Keynote"] = true,
   ["TextEdit"] = true, ["BBEdit"] = true, ["Xcode"] = true,
   ["Sublime Text"] = true, ["Nova"] = true,
+  -- Added 2026-08-06. TeXShop was held out of this list for five days on the
+  -- grounds that it had never been measured (D32's live tension); it has been
+  -- now — 0.10–0.23 ms, the same as MacDown and Preview — so it is in, and the
+  -- pull precheck can see LaTeX files at last (D79).
+  ["TeXShop"] = true, ["BibDesk"] = true,
+  ["Microsoft PowerPoint"] = true, ["OmniGraffle"] = true,
 }
 
 -- A Desktop whose windows span at least this many different subjects is
@@ -402,8 +426,13 @@ M.showStaleHint = true
 
 -- Alerts from ANOTHER Mac — a session there is blocked on a question. Written by
 -- claude-dashboard-state.sh at the instant it happens, into a synced folder.
--- Nothing here is on by default beyond reading the folder: if the folder does
--- not exist, this costs one failed directory read every remoteAlertSeconds.
+--
+-- **This turns itself off on a machine with no synced folder (D77).** `true`
+-- here means "watch for them if that is possible": `M.start` arms the timer and
+-- the path watcher only when `M.remoteAlertDir` or its parent exists, so a
+-- Dropbox-less machine polls nothing rather than failing a directory read every
+-- remoteAlertSeconds for ever. The check runs once, at start, so installing the
+-- sync client later needs a Reload Config.
 M.showRemoteAlerts       = true
 M.remoteAlertDir         = (os.getenv("HOME") or "") .. "/Dropbox/claude/dashboard_alerts"
 M.remoteAlertSeconds     = 20     -- backstop; a path watcher catches it sooner
@@ -468,7 +497,6 @@ local liveRead   = {}          -- spaceID -> true once actually read THIS sessio
                                -- as opposed to restored from the state file
 local hoverId, hoverUUID       -- the icon currently pointed at, and its screen
 local tipCanvas, tipTimer, tipWatch, focusTimer
-local overrides  = {}          -- spaceID -> manual name
 local repos      = {}
 local reposLoadedAt = 0        -- when loadRepos() last ran (see refreshRepos)
 local claudeStates = {}        -- repo name (lowercased) -> "working" | "idle"
@@ -1104,6 +1132,22 @@ local function readMarker(dir, f)
   local t = hs.json.read(dir .. "/" .. f)
   remoteParse[key] = (type(t) == "table") and t or false
   return (type(t) == "table") and t or nil
+end
+
+-- Can remote alerts arrive on this machine at all? (D77) The marker folder is
+-- created by the FIRST alert, so its absence proves nothing on a machine that
+-- syncs — but the absence of its parent does. Accepting the parent is what lets
+-- a Dropbox machine that has never received an alert still watch for one.
+local function remoteAlertsPossible()
+  local dir = M.remoteAlertDir
+  if not dir or dir == "" then return false end
+  local function isDir(p)
+    local ok, mode = pcall(hs.fs.attributes, p, "mode")
+    return ok and mode == "directory"
+  end
+  if isDir(dir) then return true end
+  local parent = dir:match("^(.*)/[^/]+$")
+  return (parent ~= nil) and isDir(parent)
 end
 
 local function readRemoteAlerts()
@@ -1746,12 +1790,13 @@ local function screenEntries(screen)
       -- column with the session lines above and below.
       local dots  = { claudeDotSpec(nil), gitDotSpec(nil) }
       local mid   = dots[1].ch .. " " .. dots[2].ch
-      -- A line is TWO independent parts: a name, then the icon row. ⌘⌃⌥N
-      -- replaces the name and nothing else — the icons report what is actually
-      -- on the Desktop, which renaming it cannot change. The name is empty only
-      -- when the icons stand in for a word that named apps (Utility, MacDown).
-      local name  = overrides[sid]
-                    or ((icons and not icons.named) and "" or (shown or auto or "…"))
+      -- A line is TWO independent parts: a name, then the icon row. There is no
+      -- per-Desktop override in front of this any more (D76): a ⌘⌃⌥N name
+      -- belongs to a PROJECT and is applied by displayName above, so it appears
+      -- here only while that project still has something on this Desktop. The
+      -- name is empty only when the icons stand in for a word that named apps
+      -- (Utility, MacDown).
+      local name  = (icons and not icons.named) and "" or (shown or auto or "…")
       local suffix = (name == "") and " → " or (" → " .. name .. " ")
       local text   = prefix .. mid .. suffix
       if icons then text = text .. string.rep(" ", iconTextPad(icons)) end
@@ -2965,6 +3010,23 @@ function M.showAll()
   hs.alert.show("Dashboard shown on all displays")
 end
 
+-- Rename a PROJECT — the only thing ⌘⌃⌥N can name (D76). The name is stored
+-- against the project, so it reads the same wherever that project appears and
+-- vanishes from a Desktop the moment the project has nothing there any more.
+local function renameProject(project)
+  local key = tostring(project):lower()
+  local btn, txt = hs.dialog.textPrompt(
+    "Name this project",
+    ("Custom name for %s, wherever it appears on the panel. Leave blank to clear it.")
+      :format(project),
+    projectNames[key] or project, "Save", "Cancel")
+  if btn ~= "Save" then return end
+  txt = (txt or ""):gsub("^%s+", ""):gsub("%s+$", "")
+  projectNames[key] = (txt ~= "" and txt ~= project) and txt or nil
+  draw()
+  M.saveLayout()
+end
+
 function M.nameCurrent()
   -- The Desktop you mean is the one you are WORKING on — the focused Space —
   -- not the one under the mouse pointer. Those were the same thing until the
@@ -2978,40 +3040,34 @@ function M.nameCurrent()
     return safeActiveSpace(hs.mouse.getCurrentScreen() or hs.screen.mainScreen())
   end)()
   if not sid then hs.alert.show("Couldn't identify the current Desktop"); return end
-  -- D67: on a Desktop named after live sessions, ⌘⌃⌥N renames the PROJECT, not
-  -- the Desktop — that name then reads the same wherever the project appears,
-  -- and survives moving the session to another Desktop. Which project, when
-  -- several run here: the one whose window you are looking at, falling back to
-  -- the first line.
+  -- D76: ⌘⌃⌥N names a PROJECT and nothing else, on every Desktop rather than
+  -- only on one running a session. Read this Desktop first, so the decision is
+  -- made from what is on it NOW: the focused Space is by definition active, so
+  -- scanActive covers it, and without this a Desktop whose documents were
+  -- opened since the last read would look empty and refuse a name it can serve.
+  pcall(scanActive)
+  -- A session names the Desktop, so a session's project is what ⌘⌃⌥N means
+  -- here. Which one, when several run on it: the one whose window you are
+  -- looking at, falling back to the first line.
   local groups = sessionGroupsFor(sid)
   if #groups > 0 then
     local target = groups[1]
     for _, g in ipairs(groups) do
       for _, w in ipairs(g.wids) do if w == frontSession then target = g end end
     end
-    local key = tostring(target.project):lower()
-    local btnP, txtP = hs.dialog.textPrompt(
-      "Name this project",
-      ("Custom name for %s, wherever it appears on the panel. Leave blank to clear it.")
-        :format(target.project),
-      projectNames[key] or target.project, "Save", "Cancel")
-    if btnP ~= "Save" then return end
-    txtP = (txtP or ""):gsub("^%s+", ""):gsub("%s+$", "")
-    projectNames[key] = (txtP ~= "" and txtP ~= target.project) and txtP or nil
-    draw()
-    M.saveLayout()
-    return
+    return renameProject(target.project)
   end
-  local cur = overrides[sid] or labelCache[sid] or ""
-  local btn, txt = hs.dialog.textPrompt(
-    "Name this Desktop",
-    "Custom name for the Desktop you're on. Leave blank to clear it and go back to auto-detection.",
-    cur, "Save", "Cancel")
-  if btn ~= "Save" then return end
-  txt = (txt or ""):gsub("^%s+", ""):gsub("%s+$", "")
-  if txt == "" then overrides[sid] = nil else overrides[sid] = txt end
-  draw()
-  M.saveLayout()
+  -- No session: the projects whose documents are open here (D75), top-ranked
+  -- first — the same order the line itself is drawn in, so ⌘⌃⌥N renames the
+  -- name you are looking at when a Desktop shows the "A / B" pair.
+  local projs = spaceProjects[sid]
+  if projs and projs[1] then return renameProject(projs[1]) end
+  -- Nothing nameable. There is deliberately no fallback to naming the Desktop
+  -- itself: that name outlived everything it described — it survived the
+  -- windows closing, followed the Desktop through a reorder, and hid the real
+  -- label from every later read (D76).
+  hs.alert.show("Nothing to name here — a name belongs to a project, "
+    .. "so run a session on this Desktop or open one of its documents")
 end
 
 -- Walk every Desktop once, reading each as it becomes active.
@@ -3132,8 +3188,7 @@ function M.saveLayout()
         icons = pd.icons                       -- carry an unread Desktop forward
       end
       desktops[i] = {
-        index = i, name = overrides[sid] or labelCache[sid] or "",
-        manual = overrides[sid] ~= nil, windows = windows, icons = icons,
+        index = i, name = labelCache[sid] or "", windows = windows, icons = icons,
       }
     end
     state.screens[key] = { name = s:name() or "", desktops = desktops,
@@ -3177,9 +3232,13 @@ local function restoreNames()
       local spaces = safeSpacesForScreen(s)
       for i, sid in ipairs(spaces) do
         local d = saved.desktops[i]
-        if d and d.name and d.name ~= "" then
+        -- `d.manual` marks a name from the retired per-Desktop override (D76).
+        -- It is skipped rather than restored: it described the Desktop rather
+        -- than anything on it, which is exactly what D76 removed. State files
+        -- written before v53 still carry it, so this is also the migration —
+        -- the stale name disappears on the first launch after the upgrade.
+        if d and d.name and d.name ~= "" and not d.manual then
           labelCache[sid] = d.name
-          if d.manual then overrides[sid] = d.name end
         end
         -- Icons come back with the names, so a fresh launch looks like the panel
         -- you left rather than a column of bare words waiting on ⌘⌃⌥S.
@@ -3306,7 +3365,11 @@ function M.start()
   -- sync client that swaps the directory can leave the watcher pointed at a
   -- vanished inode). Both are cheap — one directory read of a folder that is
   -- empty almost all the time.
-  if M.showRemoteAlerts and M.remoteAlertDir then
+  --
+  -- Neither is armed at all on a machine with no synced folder (D77): there,
+  -- the same pair would be a timer re-reading a directory that cannot exist and
+  -- a watcher that failed to attach, for the life of the session.
+  if M.showRemoteAlerts and remoteAlertsPossible() then
     remoteTimer = hs.timer.doEvery(M.remoteAlertSeconds or 20, refreshRemoteAlerts)
     local okw, w = pcall(hs.pathwatcher.new, M.remoteAlertDir, function()
       -- Coalesce: a sync writes a file in more than one step and would

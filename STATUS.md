@@ -1,15 +1,24 @@
 # STATUS.md — Desktop Dashboard
 
 Living snapshot of where this project stands. Rewritten, not appended.
-Last updated: **2026-08-04 15:25 EDT** (`satdat1`).
+Last updated: **2026-08-06 14:45 EDT** (`cornillon-laptop`).
 
 ---
 
 ## State
 
-- **The tool is at `v52` and in daily use.** `M.version` reads
-  `"v52 (only a live session is coloured; only a document names a project, 2026-08-04)"`.
+- **The tool is at `v55`, in daily use, and everything since `v52` has now been run.**
+  `M.version` reads `"v55 (TeXShop, BibDesk, PowerPoint and OmniGraffle can name a Desktop
+  too, 2026-08-06)"`.
   `v51` before it was the **merge of two machines' parallel work**. One file.
+- **`v53` fixed two connected naming faults, both found from the laptop on 2026-08-05.**
+  `M.docApps` listed `["MacDown 3000"]` and the app is called **`MacDown`** — so no MacDown
+  window was ever asked for its document and **D75**'s first rule could not fire for the
+  editor Peter reads every `.md` in. Wrong since the first commit; invisible until D75 made
+  a document the only evidence (Task **#8**). And the per-Desktop ⌘⌃⌥N override is **gone**:
+  ⌘⌃⌥N now renames a **project** on every line, so the name follows the work and leaves a
+  Desktop when the work does (**D76**, Task **#9**). **Both are now verified live** — see the
+  active thread for what was measured.
 - **The last functional change was today**, and it was a repair. Every dot on the panel had
   gone dead: `hs.task` deadlocks on more than ~512 bytes of output unless a streaming
   callback drains the pipe, which took out four of the six subprocess reads at once, and
@@ -68,7 +77,7 @@ Everything in this section was run or read, not recalled.
 - Working tree clean and level with `origin/main` before the migration began
   (`6442953`).
 
-## Decisions taken (D1–D75)
+## Decisions taken (D1–D79)
 
 D1–D64 were lifted from `CLAUDE.md` on 2026-08-03. **Eleven are new on 2026-08-04.** Written
 here: every `hs.task` carries a timeout (**D65**), a subprocess writes to a file rather than
@@ -95,35 +104,55 @@ Lifecycle: D60–D62.
 Repo: `PRE_CONVERSION/` (D63), the code stays at the top level (D64).
 Subprocesses: time out every read (D65), capture to a file (D66).
 Naming: sessions first and in teal (D67, D74, D75), then the projects whose documents are
-open there, in white (D75).
+open there, in white (D75). A name typed by hand belongs to a **project**, never to a
+Desktop (D76, superseding D16).
+Portability: no synced folder, no polling (D77); the code's own install steps must not
+contradict INSTALL.md (D78). TeXShop measured at 0.1 ms and let into docApps, closing D32's
+five-day-old live tension (D79).
 Remote work: legend words are buttons (D68–D71), the hook raises the alert (D72–D73).
 
 ## Active thread — resume here
 
-**Nothing is in flight, and the two machines are back in step.** Today's three faults are
-fixed and verified — the dead dots (**D65**), the flickering session list (**D66**), and the
-naming rule that let an open document steal a Desktop's name from the session running on it
-(**D67**) — and the laptop's parallel work is merged in. The panel was then tuned twice on
-top of that: the colour moved to the session lines and everything else went white, and a
-project now names a Desktop **only** when one of its documents is open there (**D74**,
-**D75**, `v52`). Nothing about either is open — the last question, whether "document" meant
-`.md` only, was put back and answered: any document.
+**Nothing is in flight.** Everything from `v53` through `v55` has been run on this machine
+and behaves as designed; Peter confirmed ⌘⌃⌥N works properly in both branches on 2026-08-06,
+which was the last untested piece.
 
-**What has never been exercised, and needs a person at the keyboard:**
+**What is now verified, not assumed:**
 
-- **Click-to-cycle and ⌘⌃⌥N on a session line.** Clicking raises that project's terminal
-  window; clicking again takes the next session in the same project. ⌘⌃⌥N there renames the
-  project everywhere it appears.
-- **⌘⌃⌥g and its pull**, which now run through the rewritten `runTask`.
-- **The two feature sets together.** The clickable legend words and the remote-alert line
-  came from the laptop and have never run alongside the per-project Desktop lines. They
-  coexist in the loaded build — `legendClicks` is populated, `remoteAlertDir` is set, the
-  Desktop lines still render per project — but nobody has clicked anything.
+- **MacDown reports its documents.** The same two windows saved `doc=''` under `v52` and full
+  repo paths under `v54`.
+- **Two Desktops renamed themselves** on the first ⌘⌃⌥S: `MacDown` → `MODIS_L2_Manuscript`
+  and `MacDown` → `three-way_SST_error_analysis_manuscript`. Both hold nothing but a MacDown
+  window.
+- **The D76 migration took.** No `manual` key survives in the state file; `3-way analysis` is
+  gone, and the project it named now draws under Peter's existing alias **3-way SST
+  analysis** on every Desktop that project is on.
+- **⌘⌃⌥N renames the project, and refuses where there is no project.** Confirmed by Peter.
+- **TeXShop is inside the pull's open-file check at last** (**D79**): 0.10–0.23 ms, the same
+  as MacDown and Preview, so it went on the list rather than being documented around. Its
+  two windows on Desktop 5 now report `LATEX/main.tex` and `LATEX/main.pdf`.
 
-**One migration consequence:** a ⌘⌃⌥N name set on a Desktop that now has a session is
-ignored, because such a line is named by its project. `Desktop 4` reads
-`three-way_SST_error_analysis_manuscript` again rather than `3-way_analysis`. Re-applying it
-as a **project** name fixes it everywhere at once. Peter declined the automatic migration.
+**Still never exercised, and unchanged by any of this:** click-to-cycle on a session line;
+⌘⌃⌥g and its pull through the rewritten `runTask`; the clickable legend words and the
+remote-alert line alongside the per-project Desktop lines.
+
+**Reported and deliberately not fixed — the `jq` dependency.** Without `jq` on the hook's
+`PATH`, `claude-dashboard-state.sh` writes no state file and exits 0, so the red dot silently
+never lights. On this laptop `jq` resolves to `~/opt/anaconda3/bin/jq`, which is not a
+property of this project. Hardening it is a decision about the hook, not a cleanup.
+
+**Open questions, none blocking:**
+
+- **Adobe Acrobat** is installed (in `/Applications/Adobe Acrobat DC/`) and is not in
+  `M.docApps`; Preview is, and is what opens repo PDFs here. Left out; say if it should join.
+- **MATLAB** is still out and is the app D5's multi-minute stalls were written about. Eight
+  versioned bundles, each reporting its own name, so it needs eight keys or a pattern.
+- The `claude-config` half of session `8006f23a` (`4d4e6fb`) has no log in that repo.
+  **D34** says it should have one; Peter has not been asked.
+
+**Uncommitted.** This machine is carrying `v53`–`v55`, D76–D79, Tasks #8–#12, two session
+logs including the reconstructed one, and — in `claude-config` — D35 and the working-rule
+change behind it. **The iMac has seen none of it.**
 
 **Finder tags do not travel in git.** After pulling this repo on the other machine, run
 `~/Git_Repos/claude-config/tag-spine.sh ~/Git_Repos/Desktop_Dashboard`.
