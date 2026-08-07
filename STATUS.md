@@ -1,7 +1,7 @@
 # STATUS.md — Desktop Dashboard
 
 Living snapshot of where this project stands. Rewritten, not appended.
-Last updated: **2026-08-07 12:30 EDT** (`cornillon-laptop`).
+Last updated: **2026-08-07 13:05 EDT** (`cornillon-laptop`).
 
 ---
 
@@ -77,7 +77,7 @@ Everything in this section was run or read, not recalled.
 - Working tree clean and level with `origin/main` before the migration began
   (`6442953`).
 
-## Decisions taken (D1–D86)
+## Decisions taken (D1–D87)
 
 D1–D64 were lifted from `CLAUDE.md` on 2026-08-03. **Eleven are new on 2026-08-04.** Written
 here: every `hs.task` carries a timeout (**D65**), a subprocess writes to a file rather than
@@ -114,7 +114,8 @@ both blocking questions were measured (D82), and the hook fires on session start
 exists before it is prompted (D83). A session running inside an editor is placed by the window
 that hosts it, identified by title and never named from one (D84) — or better, by the window
 it started in, which needs no title at all (D85). Reaching that window never opens Mission
-Control (D86).
+Control (D86), and the app it belongs to is found by exact name, because
+`hs.application.get("Code")` returns Xcode (D87).
 Remote work: legend words are buttons (D68–D71), the hook raises the alert (D72–D73).
 
 ## Active thread — resume here

@@ -253,3 +253,12 @@ invented index is worse than a short one.
     **D85's persistence answers that** — `Desktop 6 ● ● → opendap-registry · vscode` drew with
     **7 of 9 Desktops still unread**, which is also the first confirmation that the capture and
     the saved mapping both work
+- ★ **P19** `1701_cornillon-laptop` · 2026-08-07 12:50 EDT · now clicking does nothing at all
+  → **v61**, **D87**, and a correction to **D86**. **`hs.application.get("Code")` returns
+    Xcode** — measured, with both running — so `v60`'s brand-new "activate the owning
+    application" step activated Xcode, which has no window in front, and the button looked
+    dead. Now resolved by an exact-name scan of `runningApplications()`, with `gotoSpace` as a
+    genuine last resort so the Desktop switch cannot fail. **D86's stated cause was also
+    wrong** and is corrected in place: Peter's own test — clicking a plain Desktop line, which
+    calls `gotoSpace` and nothing else, *"simply moves"* — shows the Mission Control zoom came
+    from reaching across Spaces for a window, not from `gotoSpace`

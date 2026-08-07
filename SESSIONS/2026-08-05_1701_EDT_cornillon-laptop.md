@@ -530,3 +530,33 @@ session) and the saved mapping work.
 
 Not yet verified: the click itself under `v60`. The Mission Control call is gone from the path
 it takes, but only Peter can say what the screen does.
+
+## P19 · 2026-08-07 12:50 EDT · now it does nothing at all
+
+Peter: the session populates both lists correctly when claude starts, but clicking either line
+does nothing. And, asked directly, a plain Desktop line *"simply moves to that line"* — no
+Mission Control.
+
+**Two findings, one of them a correction to yesterday's decision.**
+
+**`hs.application.get("Code")` returns Xcode.** Measured with both applications running:
+`hs.application.get("Code")` → `hs.application: Xcode`, while
+`hs.application.get("com.microsoft.VSCode")` → `Code`. The lookup is fuzzy and `Code` matches
+`Xcode`. So `v60`'s new "activate the owning application" step activated **Xcode** on every
+click, and because Xcode had no window in front the symptom was a dead button rather than
+anything that pointed at the cause. Fixed by `appByExactName`, an exact-name scan of
+`runningApplications()` — no bundle ids to maintain, a few dozen string compares per click
+(**D87**). A last resort was added at the same time: if activating the app has not brought us
+to the Desktop after three tries, call `gotoSpace` anyway, because landing on the right
+Desktop is the part that must not fail.
+
+**D86's stated cause was wrong, and is corrected in place.** It claimed
+`hs.spaces.gotoSpace` opens Mission Control. Peter's answer to the direct question disproves
+it: a Desktop line calls `gotoSpace` and nothing else, and it moves cleanly. The zoom-out came
+from the other half of the old path — looking up and focusing a window on a Space we are not
+on. **The ordering the decision prescribes is still right**; only its reason changed, and the
+corrected one is narrower and more useful: *reaching across Spaces for a window disturbs the
+screen; switching Spaces does not.*
+
+Verified after the fix: `appByExactName("Code")` resolves to `com.microsoft.VSCode`. The click
+itself still needs Peter.

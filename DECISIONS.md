@@ -1358,5 +1358,31 @@ change tense to stand alone.
   ⌘⌃⌥S had been pressed. Sessions captured by D85 no longer depend on a scan: the mapping is
   restored from disk, which is exactly what was observed after this build —
   `Desktop 6 ● ● → opendap-registry · vscode` drawn with **7 of 9 Desktops still unread**.
+- **CORRECTED 2026-08-07, same day: `gotoSpace` was NOT the cause.** Asked to test it
+  directly, Peter reported that clicking a plain **Desktop** line — which calls
+  `hs.spaces.gotoSpace` and nothing else — *"simply moves to that line"*, with no Mission
+  Control at all. So the zoom-out came from the other half of the old path: looking up and
+  focusing a window that is on a Space we are not on. **The decision above stands and the
+  ordering is still right** — go through the window, then the app, and treat `gotoSpace` as
+  the fallback — but the reason given for it was wrong, and the corrected one is narrower:
+  *reaching across Spaces for a window is what disturbs the screen; switching Spaces is not.*
 - **Where:** `raiseWindowOnSpace`, `raiseTargets`, the `win:` click id, `hookSessionEntries`,
   `screenEntries` — `v60`.
+
+### D87. Find an application by EXACT name, never with `hs.application.get`
+- **Decision:** the click path resolves an application by scanning
+  `hs.application.runningApplications()` for an exact name match (`appByExactName`).
+  `hs.application.get(name)` is not used for this and should not be.
+- **Why — measured 2026-08-07, with both applications running:**
+  **`hs.application.get("Code")` returns Xcode.** Its lookup is fuzzy, and `Code` matches
+  `Xcode`. So `v60`, which had just been rewritten to activate the owning application,
+  activated **Xcode** on every click of a VS Code session line — and since Xcode had no
+  visible window in front, the symptom Peter reported was the worst kind: *"clicking on either
+  does nothing"*. `hs.application.get("com.microsoft.VSCode")` resolves correctly, but a
+  bundle id is another thing to keep right per app, and the exact-name scan needs no
+  configuration at all.
+- **The cost is a few dozen string compares**, once per click. Nothing about this is hot.
+- **A last resort was added at the same time:** if activating the app does not bring us to its
+  Desktop within three tries, `gotoSpace` is called anyway. Landing on the right Desktop is
+  the part that must not fail; raising the exact window is a nicety.
+- **Where:** `appByExactName`, `raiseWindowOnSpace` — `v61`.

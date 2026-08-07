@@ -4,7 +4,7 @@
 git state.
 **Produces:** `desktop_dashboard.lua` — a single-file tool loaded from
 `~/.hammerspoon/init.lua` — plus `claude-dashboard-state.sh`, its Claude Code hook.
-**State:** v60, working and in daily use; see `STATUS.md`.
+**State:** v61, working and in daily use; see `STATUS.md`.
 
 Context for AI coding sessions on this repo. Read this before changing
 `desktop_dashboard.lua`. `README.md` is the user-facing install/usage doc; **`DECISIONS.md`
@@ -18,7 +18,7 @@ design ruling lives there as a numbered `D##`.
 | `CLAUDE.md` (this file) | what the project is, the architecture, the layout |
 | `STATUS.md` | where things stand right now, ending in the **active thread** |
 | `LOG.md` | one line per prompt — scan this to see what has been done |
-| `DECISIONS.md` | **D1–D86** — every design ruling and the measurement behind it |
+| `DECISIONS.md` | **D1–D87** — every design ruling and the measurement behind it |
 | `TASKS.md` | the work list: numbered tasks with `Status:` lines |
 
 ## What this project is
@@ -41,7 +41,7 @@ The module returns a table `M` with a `CONFIG` block at the top and `M.start()` 
 ```
 CLAUDE.md               this file — project context, architecture, layout
 STATUS.md               where things stand + active thread
-DECISIONS.md            D1–D86 — every design ruling, with its measurement
+DECISIONS.md            D1–D87 — every design ruling, with its measurement
 TASKS.md                numbered work list with Status: lines
 LOG.md                  append-only one-line-per-prompt index
 README.md               human-facing overview, controls, config, limitations
@@ -156,7 +156,7 @@ window.
 
 ## Where the design rulings live
 
-They are **not** in this file. `DECISIONS.md` holds all 86, with the measurements intact —
+They are **not** in this file. `DECISIONS.md` holds all 87, with the measurements intact —
 the ~40 ms `hs.window.get` cost, the 750-sample dot study, the Menlo 13 glyph widths, the
 observation dates. The ones most likely to be violated by accident:
 
@@ -193,6 +193,11 @@ These are platform facts rather than choices, which is why they are here and not
   the first commit and cost nothing visible until **D75** made a document the *only*
   evidence — then MacDown, the editor Peter reads every `.md` in, stopped naming anything.
   **Symptom to recognise:** one particular editor never names a Desktop while others do.
+- **`hs.application.get(name)` matches fuzzily, and it will hand you the wrong app.**
+  Measured 2026-08-07 with both running: **`hs.application.get("Code")` returns Xcode.** A
+  click path built on it activated Xcode instead of VS Code and looked like a dead button.
+  Use `appByExactName`, which scans `runningApplications()` for an exact match (**D87**).
+  **Symptom to recognise:** an action that silently does nothing, for one app only.
 - **A blank panel and a wedged ⌘⌃⌥S walk mean `draw()` is throwing, at least as often as
   they mean a collected timer.** `pcall(draw)` swallows the error, so the console stays clean
   and the symptom is identical to the garbage-collection trap below. **Check the draw path

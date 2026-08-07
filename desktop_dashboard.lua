@@ -75,7 +75,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v60 (raise an editor session without opening Mission Control, 2026-08-07)"
+M.version = "v61 (hs.application.get('Code') is Xcode — find the app by exact name, 2026-08-07)"
 
 -- ============================ CONFIG ============================
 
@@ -2765,12 +2765,30 @@ end
 --      a window macOS will not let us look up from here (D3), still without
 --      Mission Control, and then focus the exact window once we have arrived;
 --   3. only if the app has gone, `gotoSpace` — the Desktop is worth a flash.
+-- The running application with EXACTLY this name.
+--
+-- `hs.application.get` must not be used for this: its lookup is fuzzy, and
+-- **`hs.application.get("Code")` returns Xcode** (measured 2026-08-07, with both
+-- running). Clicking a VS Code session therefore activated Xcode and looked
+-- like nothing happening at all. Scanning the running applications costs a few
+-- dozen string compares and cannot pick the wrong one.
+local function appByExactName(name)
+  if not name or name == "" then return nil end
+  local ok, list = pcall(hs.application.runningApplications)
+  if not ok then return nil end
+  for _, x in ipairs(list or {}) do
+    local okn, n = pcall(function() return x:name() end)
+    if okn and n == name then return x end
+  end
+  return nil
+end
+
 local function raiseWindowOnSpace(wid, space, appName)
   if not wid then return end
   local w = hs.window.get(wid)
   if w then pcall(function() w:focus() end); return end
   if appName and appName ~= "" then
-    local a = hs.application.get(appName)
+    local a = appByExactName(appName)
     if a then
       pcall(function() a:activate() end)
       local tries = 0
@@ -2778,7 +2796,14 @@ local function raiseWindowOnSpace(wid, space, appName)
         tries = tries + 1
         local w2 = hs.window.get(wid)
         if w2 then pcall(function() w2:focus() end); return end
-        if tries < 3 then raiseTimer = hs.timer.doAfter(0.3, attempt) end
+        if tries < 3 then
+          raiseTimer = hs.timer.doAfter(0.3, attempt)
+        elseif space then
+          -- Activating the app did not bring us to its Desktop — a window
+          -- minimised, or on a display we are not looking at. Switch anyway:
+          -- landing on the right Desktop is the part that must not fail.
+          pcall(hs.spaces.gotoSpace, space)
+        end
       end
       raiseTimer = hs.timer.doAfter(0.3, attempt)
       return
