@@ -486,7 +486,14 @@ and `T5 ● ● opendap-registry` in the sessions list.
 
 ## Task #15 — Place a session by the window that was frontmost when it started
 
-**Status:** todo
+**Status:** done (2026-08-07) — built as **D85**, `v59`. Peter chose it immediately after it
+was written up, on the condition that it make an editor session behave like a Terminal one and
+break nothing else. Both guards described below are in: the frontmost window is accepted only
+when its app matches the session's `term`, and sessions predating the load are never captured.
+Clicking such a line now raises its window, which is the part D84 could not do. **What is not
+yet verified is the click itself** — the mechanism is proven for ordinary windows
+(`hs.window.get` resolves them from a CoreGraphics id) but nobody has clicked `T3`.
+The original write-up follows.
 
 **Peter's idea, 2026-08-07**, offered as an aside and better than what it was an aside to:
 *"would another option be to have claude write in a file which project it is working, which

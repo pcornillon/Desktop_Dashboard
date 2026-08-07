@@ -1,7 +1,7 @@
 # STATUS.md — Desktop Dashboard
 
 Living snapshot of where this project stands. Rewritten, not appended.
-Last updated: **2026-08-07 00:20 EDT** (`cornillon-laptop`).
+Last updated: **2026-08-07 11:45 EDT** (`cornillon-laptop`).
 
 ---
 
@@ -77,7 +77,7 @@ Everything in this section was run or read, not recalled.
 - Working tree clean and level with `origin/main` before the migration began
   (`6442953`).
 
-## Decisions taken (D1–D84)
+## Decisions taken (D1–D85)
 
 D1–D64 were lifted from `CLAUDE.md` on 2026-08-03. **Eleven are new on 2026-08-04.** Written
 here: every `hs.task` carries a timeout (**D65**), a subprocess writes to a file rather than
@@ -112,48 +112,51 @@ five-day-old live tension (D79). The hook carries no external dependency (D80), 
 with no window still gets a line (D81). iTerm2 is read by the same poll as Terminal, after
 both blocking questions were measured (D82), and the hook fires on session start so a session
 exists before it is prompted (D83). A session running inside an editor is placed by the window
-that hosts it, identified by title and never named from one (D84).
+that hosts it, identified by title and never named from one (D84) — or better, by the window
+it started in, which needs no title at all (D85).
 Remote work: legend words are buttons (D68–D71), the hook raises the alert (D72–D73).
 
 ## Active thread — resume here
 
-**Nothing is in flight.** `v58` is loaded and photographed.
+**`v59` is loaded and the panel is healthy** — drawing, console clean, a full ⌘⌃⌥S walk
+completing.
 
-**Where a session's Desktop line comes from, as of `v58`:**
+**Two things need Peter at the keyboard, one action each:**
 
-- **Terminal.app and iTerm2** — placed by their own window. A fact, not an inference
-  (**D82**).
-- **A session inside an editor** — VS Code, Cursor — placed by the window that hosts it,
-  found by matching the session's own repo against that window's **title** (**D84**). Exactly
-  one Desktop must match or it claims nothing.
-- **Anything else** — Ghostty, kitty, ssh — a `T#` line from the hook file with no Desktop
-  (**D81**).
+1. **Click `T3`** (the VS Code session). It should switch to Desktop 8 and raise the VS Code
+   window. The mechanism is proven for ordinary windows — `hs.window.get` resolves Terminal,
+   Preview, MacDown and Finder from a CoreGraphics id — but **nobody has clicked the line**.
+2. **Start a new claude session in any terminal** — VS Code, Ghostty, anything — and watch it
+   land on the right Desktop **immediately**, without a ⌘⌃⌥S. That is D85's capture, and it
+   cannot be exercised on his existing session because sessions predating the load are
+   deliberately never captured.
 
-**Next, and it supersedes the third of those: Task #15, Peter's design.** Snapshot the
-frontmost window when a session starts (the `SessionStart` hook of **D83** is what makes that
-event exist), then place it by window ever after. No titles, every terminal, and D67-faithful
-rather than D67-adjacent. **Not built.** The notes in `TASKS.md` carry the guard it needs —
-accept the frontmost window only if its app matches the session's `term`, or a session started
-while you look away lands on the wrong Desktop.
+**Where a Desktop line comes from, as of `v59`, in order of preference:**
 
-**Verified today, in order:** MacDown's documents (`v54`); ⌘⌃⌥N renaming a project and refusing
-where there is none; TeXShop at 0.10–0.23 ms (`v55`); the hook with `jq` off the PATH, 4×
-faster than the `jq` version (`v56`); a fake Cursor session drawing a `T#` line; iTerm's two
-blocking measurements and a real Desktop line (`v57`); `SessionStart` carrying a real
-`session_id`; and `Desktop 8 → opendap-registry · vscode` (`v58`).
+- **Its own window** — Terminal.app and iTerm2 (**D82**).
+- **The window it started in** — anything else, recorded at `SessionStart` (**D85**). No
+  titles, any terminal, and it follows the window if you move it.
+- **A window whose title names the repo** — the fallback for a session already running when
+  the panel loaded (**D84**).
+- **No Desktop at all** — a `T#` line in `Sessions elsewhere` (**D81**).
 
-**Still never exercised:** click-to-cycle on a session line; ⌘⌃⌥g and its pull through the
-rewritten `runTask`; the clickable legend words alongside the per-project Desktop lines.
+**A gotcha earned today, now in `CLAUDE.md`:** a blank panel plus a wedged ⌘⌃⌥S walk plus a
+clean console means **`draw()` is throwing** at least as often as it means a collected timer —
+`pcall(draw)` hides it. Cheapest test: look for a layer-3 Hammerspoon window in
+`hs.window.list(true)`; none means nothing is being drawn.
 
-**How to check the panel from a session** (also in `CLAUDE.md`'s Testing section):
-`hs.window.snapshotForID(<the panel's kCGWindowNumber>, true)`, taking the largest layer-3
-Hammerspoon window from `hs.window.list(true)`. **`hs.screen:snapshot()` does not work.**
+**Still never exercised:** click-to-cycle on a Terminal session line; ⌘⌃⌥g and its pull through
+the rewritten `runTask`; the clickable legend words alongside the per-project Desktop lines.
 
-**The colleague this fortnight's work is for needs both repos** — `Desktop_Dashboard` for
-`v58`, and whichever repo holds his hook, for the `jq`-free copy that records `TERM_PROGRAM`
-and fires on `SessionStart`.
+**How to photograph the panel from a session** (in `CLAUDE.md`'s Testing section):
+`hs.window.snapshotForID(<the panel's kCGWindowNumber>, true)`.
+**`hs.screen:snapshot()` does not work.**
 
-**The iMac has pulled none of it**, and its hook is still the `jq` version.
+**The colleague this work is for needs both repos** — `Desktop_Dashboard` for `v59`, and
+whichever repo holds his hook, for the `jq`-free copy that records `TERM_PROGRAM` and fires on
+`SessionStart`.
+
+**The iMac has pulled none of it.**
 
 **Finder tags do not travel in git.** After pulling this repo on the other machine, run
 `~/Git_Repos/claude-config/tag-spine.sh ~/Git_Repos/Desktop_Dashboard`.

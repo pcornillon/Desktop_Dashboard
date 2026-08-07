@@ -232,3 +232,14 @@ invented index is worse than a short one.
   → **v58**, **D84**, Task **#16**. A′ built and photographed:
     `Desktop 8 ● ● → opendap-registry · vscode` in the session colour with the VS Code icon.
     Title matching is exact on an em-dash component, one Desktop or nothing
+- ★ **P17** `1701_cornillon-laptop` · 2026-08-07 11:05 EDT · build Task #15 — and make
+  clicking a VS Code session work
+  → **v59**, **D85**, Task **#15** closed. The panel now records the window that was frontmost
+    when a session started and places it by that window ever after — any terminal, no titles,
+    D67-faithful — with two guards: the frontmost window must belong to the app the session's
+    `term` names, and sessions predating the load are never captured. Clicking such a line
+    raises its window (`raiseWindowOnSpace`, retried three times over a second), which
+    `focusTerminalWindow` could not do. **A self-inflicted outage worth remembering:**
+    `hookSessionEntries` called `placeHookSession` above its declaration, so `draw()` threw on
+    every pass — blank panel, wedged ⌘⌃⌥S, clean console, the exact signature `CLAUDE.md`
+    ascribes to a collected timer. Now a gotcha of its own

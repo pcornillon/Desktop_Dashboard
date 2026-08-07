@@ -75,7 +75,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v58 (a session inside an editor is placed by the window that hosts it, 2026-08-07)"
+M.version = "v59 (a session is placed by the window it started in, whatever the terminal, 2026-08-07)"
 
 -- ============================ CONFIG ============================
 
@@ -539,6 +539,8 @@ local repos      = {}
 local reposLoadedAt = 0        -- when loadRepos() last ran (see refreshRepos)
 local claudeStates = {}        -- repo name (lowercased) -> "working" | "idle"
 local hookSessions = {}        -- D81: sessions the title poll cannot see
+local sessionWindows = {}      -- D85: claude session id -> the window it started in
+local sessionWatcher, raiseTimer
 local claudeHooks  = {}        -- repo name -> "working" | "waiting" | "done" (from hooks)
 local sessions     = {}        -- one entry per claude terminal window, ordered
 -- D67. A session belongs to the Desktop its WINDOW is on, which is a fact —
@@ -1070,6 +1072,62 @@ local function readHookSessions()
   return out
 end
 
+-- THE WINDOW A SESSION STARTED IN (D85).
+--
+-- A shell cannot report its own window, so a session running inside an editor
+-- has no window to be placed by — which is why D84 has to identify one from a
+-- title. But there is a moment when the window is knowable without matching
+-- anything: **the instant the session starts, its window is by definition the
+-- frontmost one.** The SessionStart hook (D83) is what makes that moment
+-- observable, and a path watcher on the state directory catches it within a
+-- second, while the focus is still where you typed.
+--
+-- Recorded once, then used for ever: placement afterwards is
+-- `hs.spaces.windowSpaces`, exactly as Terminal and iTerm work, so moving the
+-- window to another Desktop moves the session with it.
+--
+-- THE GUARD IS NOT OPTIONAL. The frontmost window is only accepted when its
+-- application is the one the session's own `term` names. Without that, starting
+-- a session and immediately switching away would pin it to whatever you
+-- switched to — a confident, wrong Desktop, which is worse than none.
+local sessionsAtStart = nil    -- D85: the ones already running when we loaded
+
+local function noteSessionWindows()
+  if not M.showHookSessions then return end
+  -- SESSIONS THAT PREDATE THIS LOAD ARE NEVER CAPTURED. Their start moment is
+  -- gone, so the frontmost window says nothing about them — and with two editor
+  -- windows open it would say something confidently wrong. They fall back to
+  -- D84's title match, which is what it is for. The first pass only takes the
+  -- census; capture begins with the sessions that appear after it.
+  if sessionsAtStart == nil then
+    sessionsAtStart = {}
+    for _, h in ipairs(readHookSessions()) do sessionsAtStart[h.sid] = true end
+    return
+  end
+  local okw, win = pcall(hs.window.frontmostWindow)
+  local frontApp, frontId
+  if okw and win then
+    local oka, app = pcall(function() return win:application():name() end)
+    local oki, id  = pcall(function() return win:id() end)
+    frontApp = oka and app or nil
+    frontId  = oki and id or nil
+  end
+  local live = {}
+  for _, h in ipairs(readHookSessions()) do
+    live[h.sid] = true
+    if not sessionWindows[h.sid] and not sessionsAtStart[h.sid]
+       and frontId and frontApp then
+      local want = (M.termApps or {})[tostring(h.term or "")]
+      if want and want == frontApp then sessionWindows[h.sid] = frontId end
+    end
+  end
+  -- A session that has ended takes its mapping with it, or a recycled window id
+  -- would place the next session by an answer that was never about it.
+  for sid in pairs(sessionWindows) do
+    if not live[sid] then sessionWindows[sid] = nil end
+  end
+end
+
 -- What the panel would show: title state, the unacknowledged flag, and the hook
 -- state, since the dot depends on all three. Decides whether to repaint.
 local function dotKey()
@@ -1178,6 +1236,7 @@ local function refreshClaudeStates()
     sessionsBySpace = mapSessionsToSpaces(sessions)   -- D67: window -> Desktop
     frontSession = frontId
     claudeHooks  = readHookStates()
+    noteSessionWindows()                       -- D85, before the read below
     hookSessions = readHookSessions()          -- D81
     noteTransitions(claudeStates)
     noteSessionTransitions(sessions)
@@ -1830,38 +1889,6 @@ end
 -- Terminal title, not less. What is missing is only the window: no click
 -- target, no Desktop line, and the terminal's own name is shown so it is
 -- obvious why this one is listed apart.
-local function hookSessionEntries(startAt, list)
-  local entries = {}
-  for i, h in ipairs(list or hookSessions) do
-    local state = M.showClaudeDot and h.state or nil
-    if state == "idle" or state == "gone" then state = nil end
-    local dots = withPlaceholders({ claudeDotSpec(state), gitDotSpec(gitStateFor(h.project)) })
-    local mid  = dots[1].ch .. " " .. dots[2].ch
-    local prefix  = string.format("   T%d ", startAt + i - 1)
-    local project = " " .. displayName(h.project or "?") .. "  · " .. (h.term or "?")
-    local summary = tostring(h.summary or "")
-    local lim = M.sessionSummaryChars or 20
-    if uwidth(summary) > lim then summary = summary:sub(1, lim) .. "…" end
-    entries[#entries + 1] = {
-      dots = dots, prefix = prefix, suffix = project,
-      text = prefix .. mid .. project,
-    }
-    if M.sessionTwoLine and summary ~= "" then
-      local indent = string.rep(" ", uwidth(prefix) + 2 + (M.sessionSummaryIndent or 5))
-      local line2  = indent .. summary
-      entries[#entries + 1] = { dots = {}, dim = true,
-                                prefix = line2, suffix = "", text = line2 }
-    end
-  end
-  return entries
-end
-
--- Does this window title name the repo? (D84)
---
--- The test is deliberately narrow: the title is SPLIT on the em dash editors
--- use, and a component must equal the repo name exactly. Substring matching is
--- what D75 threw out — "opendap" would match a mail subject about OPeNDAP — and
--- nothing here needs it, because a workspace component IS the repo name.
 local function titleNamesRepo(title, repo)
   if not (title and repo) or title == "" or repo == "" then return false end
   local want = tostring(repo):lower()
@@ -1884,6 +1911,15 @@ end
 -- it would put a live session on a Desktop it is not on, which is the failure
 -- D67 was written to end.
 local function placeHookSession(h)
+  -- D85 first: the window this session actually started in, if it was caught.
+  -- This is a fact about the session rather than a match on a name, so it wins,
+  -- and it keeps working when the title says nothing useful (Ghostty, kitty) or
+  -- when the window has been moved to another Desktop.
+  local known = sessionWindows[h.sid]
+  if known then
+    local space = safeWindowSpace(known)
+    if space then return space, known end
+  end
   local app = (M.termApps or {})[tostring(h.term or "")]
   if not app then return nil end
   local hitSpace, hitWid, n = nil, nil, 0
@@ -1921,6 +1957,43 @@ local function hookSessionsSplit()
   return bySpace, loose
 end
 
+local function hookSessionEntries(startAt, list)
+  local entries = {}
+  for i, h in ipairs(list or hookSessions) do
+    -- If the window it started in is known (D85), the line becomes clickable
+    -- like a Terminal session's: it raises that window, switching Desktop on
+    -- the way. Unknown window -> the line is inert, as before.
+    local aspace, awid = placeHookSession(h)
+    local state = M.showClaudeDot and h.state or nil
+    if state == "idle" or state == "gone" then state = nil end
+    local dots = withPlaceholders({ claudeDotSpec(state), gitDotSpec(gitStateFor(h.project)) })
+    local mid  = dots[1].ch .. " " .. dots[2].ch
+    local prefix  = string.format("   T%d ", startAt + i - 1)
+    local project = " " .. displayName(h.project or "?") .. "  · " .. (h.term or "?")
+    local summary = tostring(h.summary or "")
+    local lim = M.sessionSummaryChars or 20
+    if uwidth(summary) > lim then summary = summary:sub(1, lim) .. "…" end
+    entries[#entries + 1] = {
+      awid = awid, aspace = aspace,
+      dots = dots, prefix = prefix, suffix = project,
+      text = prefix .. mid .. project,
+    }
+    if M.sessionTwoLine and summary ~= "" then
+      local indent = string.rep(" ", uwidth(prefix) + 2 + (M.sessionSummaryIndent or 5))
+      local line2  = indent .. summary
+      entries[#entries + 1] = { awid = awid, aspace = aspace, dots = {}, dim = true,
+                                prefix = line2, suffix = "", text = line2 }
+    end
+  end
+  return entries
+end
+
+-- Does this window title name the repo? (D84)
+--
+-- The test is deliberately narrow: the title is SPLIT on the em dash editors
+-- use, and a component must equal the repo name exactly. Substring matching is
+-- what D75 threw out — "opendap" would match a mail subject about OPeNDAP — and
+-- nothing here needs it, because a workspace component IS the repo name.
 local function sessionEntries()
   local entries = {}
   for i, s in ipairs(sessions) do
@@ -2060,7 +2133,7 @@ local function screenEntries(screen)
         local text = head .. mid .. suffix
         if ic then text = text .. string.rep(" ", iconTextPad(ic)) end
         entries[#entries + 1] = {
-          sid = sid, project = h.project,
+          sid = sid, project = h.project, awid = h.wid, aspace = sid,
           dots = dots, icons = ic, prefix = head, suffix = suffix,
           here = here and nline == 1,
           nameColor = M.sessionColor,
@@ -2665,6 +2738,31 @@ local function refreshTip()
   end
 end
 
+-- Raise any window, whatever owns it (D85). `focusTerminalWindow` below drives
+-- Terminal's AppleScript and cannot help here: the window holding a session
+-- that runs inside an editor is a VS Code or Cursor window.
+--
+-- The Space is switched FIRST and the focus deferred, because a window on
+-- another Desktop cannot be looked up until you are on it. The timer is held in
+-- a module local on purpose: a pending doAfter with nothing referencing it can
+-- be collected before it fires, which is the oldest trap in this file.
+local function raiseWindowOnSpace(wid, space)
+  if not wid then return end
+  if space then pcall(hs.spaces.gotoSpace, space) end
+  -- Retried rather than timed: a window on the Space you are arriving at cannot
+  -- be looked up until the switch has finished, and how long that takes is the
+  -- animation, not a number we know. Three attempts over a second, then give up
+  -- quietly — the Desktop switch above is the part that must not fail.
+  local tries = 0
+  local function attempt()
+    tries = tries + 1
+    local w = hs.window.get(wid)
+    if w then pcall(function() w:focus() end); return end
+    if tries < 3 then raiseTimer = hs.timer.doAfter(0.35, attempt) end
+  end
+  raiseTimer = hs.timer.doAfter(0.35, attempt)
+end
+
 local function focusTerminalWindow(wid)
   if not wid then return end
   sessionDone[wid] = nil                 -- looking at it is acknowledging it
@@ -2740,7 +2838,11 @@ local function activateElement(elementId)
   local sid = tonumber(elementId:match("^go:(%-?%d+)$") or "")
   if sid then pcall(hs.spaces.gotoSpace, sid); return end
   local wid = tonumber(elementId:match("^term:(%d+)$") or "")
-  if wid then focusTerminalWindow(wid); pcall(draw) end
+  if wid then focusTerminalWindow(wid); pcall(draw); return end
+  -- A session running inside an editor (D85): its window is not Terminal's, so
+  -- it is raised through the window itself rather than through AppleScript.
+  local awid, aspace = elementId:match("^win:(%d+):(%-?%d+)$")
+  if awid then raiseWindowOnSpace(tonumber(awid), tonumber(aspace)); pcall(draw) end
 end
 
 local function endDrag(commit)
@@ -3078,7 +3180,8 @@ draw = function()
           cycleTargets[#cycleTargets + 1] = e
           elemId = "cyc:" .. tostring(#cycleTargets)
         else
-          elemId = e.sid and ("go:" .. tostring(e.sid))
+          elemId = (e.awid and ("win:" .. tostring(e.awid) .. ":" .. tostring(e.aspace or 0)))
+                   or (e.sid and ("go:" .. tostring(e.sid)))
                    or (e.wid and ("term:" .. tostring(e.wid)) or "line")
         end
         cv:appendElements({
@@ -3459,6 +3562,7 @@ function M.saveLayout()
   -- panel (D67), so it cannot live in a per-screen, per-position slot the way a
   -- Desktop override does.
   local state = { savedAt = os.time(), mode = M.mode, fontSize = M.fontSize,
+                  sessionWindows = next(sessionWindows) and sessionWindows or nil,
                   projects = next(projectNames) and projectNames or nil, screens = {} }
   for _, s in ipairs(hs.screen.allScreens()) do
     local key    = s:getUUID() or s:name() or "screen"
@@ -3520,6 +3624,14 @@ local function restoreNames()
   local fs = tonumber(state.fontSize)
   if fs then
     M.fontSize = math.max(M.minFontSize or 9, math.min(M.maxFontSize or 28, math.floor(fs)))
+  end
+  -- D85: window ids survive a Hammerspoon reload, which is the case this is for.
+  -- They do NOT survive a reboot — a stale id simply fails safeWindowSpace and
+  -- the session falls back to D84's title match, so no validation is needed here.
+  if type(state.sessionWindows) == "table" then
+    for k, v in pairs(state.sessionWindows) do
+      if type(k) == "string" and tonumber(v) then sessionWindows[k] = tonumber(v) end
+    end
   end
   if type(state.projects) == "table" then
     for k, v in pairs(state.projects) do
@@ -3676,6 +3788,17 @@ function M.start()
   -- Neither is armed at all on a machine with no synced folder (D77): there,
   -- the same pair would be a timer re-reading a directory that cannot exist and
   -- a watcher that failed to attach, for the life of the session.
+  -- D85: the state directory changes the moment a session starts, and that is
+  -- the one moment its window is knowable. The 3 s dot poll is the backstop;
+  -- this is what makes the capture happen while the focus is still where you
+  -- typed, rather than up to three seconds later.
+  if M.showHookSessions and M.claudeStateDir then
+    local okw, w = pcall(hs.pathwatcher.new, M.claudeStateDir, function()
+      pcall(noteSessionWindows)
+    end)
+    if okw and w then sessionWatcher = w; pcall(function() w:start() end) end
+  end
+
   if M.showRemoteAlerts and remoteAlertsPossible() then
     remoteTimer = hs.timer.doEvery(M.remoteAlertSeconds or 20, refreshRemoteAlerts)
     local okw, w = pcall(hs.pathwatcher.new, M.remoteAlertDir, function()
@@ -3717,6 +3840,8 @@ function M.stop()
   if remoteTimer   then remoteTimer:stop(); remoteTimer = nil end
   if remoteDebounce then remoteDebounce:stop(); remoteDebounce = nil end
   if remoteWatcher then pcall(function() remoteWatcher:stop() end); remoteWatcher = nil end
+  if sessionWatcher then pcall(function() sessionWatcher:stop() end); sessionWatcher = nil end
+  if raiseTimer then raiseTimer:stop(); raiseTimer = nil end
   if ghTask        then pcall(function() ghTask:terminate() end); ghTask = nil end
   if ghWebview     then pcall(function() ghWebview:delete() end); ghWebview = nil end
   if autosaveTimer then autosaveTimer:stop() end

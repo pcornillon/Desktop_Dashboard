@@ -666,7 +666,17 @@ A session in a terminal the poll can't read — VS Code, Cursor, Ghostty, kitty 
 its **hook state file** instead, which Claude Code writes from inside the session whatever it
 is running in.
 
-**If it runs inside an editor, it gets a Desktop line anyway.** The session's file says which
+**It gets a Desktop line anyway.** The panel notices the moment a session starts — that's
+what the `SessionStart` hook is for — and at that moment its window is, by definition, the one
+in front. It remembers that window and places the session by it from then on, exactly the way
+a Terminal session is placed, so moving the window to another Desktop moves the session with
+it. Clicking the line raises that window.
+
+That works whatever you run `claude` in. There's one case it can't cover — a session that was
+already running before the panel started, whose beginning it never saw — and for that there's
+a fallback:
+
+**The fallback, for a session inside an editor.** The session's file says which
 project it's in and which terminal it's running under; `M.termApps` maps that terminal to an
 app (`vscode` → `Code`); and a window of that app whose *title* names that project is where
 the session lives. So `claude` in VS Code's built-in terminal shows up as

@@ -454,3 +454,47 @@ loose, and the `Sessions elsewhere:` block now shows only the loose ones.
 `Desktop 8 ● ● → opendap-registry  · vscode` with the VS Code icon, in the session colour,
 while `T3` listed the same session. The terminal is named on the line because "why has this
 one no window of its own" is the first thing anyone will ask.
+
+## P17 · 2026-08-07 11:05 EDT · build Task #15, and make clicking a VS Code session work
+
+Peter: does #15 make a VS Code session behave like a Terminal one, including the click on `T3`
+that currently does nothing — and will it break anything else? *"If that it is the case, do
+it."*
+
+**Built as D85, `v59`.** `noteSessionWindows` records the frontmost window when a new hook
+state file appears — a `hs.pathwatcher` on the state directory catches it within a second,
+with the 3 s poll as backstop — and `placeHookSession` now prefers that window over D84's
+title match. Placement is `hs.spaces.windowSpaces` from then on, so moving the window moves
+the session, exactly as for Terminal and iTerm.
+
+**Two guards, both necessary:**
+
+- The frontmost window is taken only if its app is the one the session's `term` names, or
+  starting a session and switching away would pin it to whatever you switched to.
+- **Sessions predating the load are never captured** — a census is taken on the first pass and
+  those ids are excluded for good. Their start moment is gone, and with two editor windows
+  open the frontmost one would be a confident wrong answer. They fall back to D84.
+
+**The click** now goes through `raiseWindowOnSpace`: switch Space, then retry the focus three
+times over a second, because a window on the Space you are arriving at cannot be looked up
+until the switch has finished and that duration is an animation rather than a number.
+`focusTerminalWindow` could never have done this — it drives Terminal's AppleScript, and the
+window here belongs to VS Code.
+
+**I broke the panel for ten minutes and it is worth recording why.** `hookSessionEntries` was
+calling `placeHookSession` **before that local was declared**, so it resolved to a nil global;
+`draw()` threw on every pass; the panel disappeared and the ⌘⌃⌥S walk wedged part-way with a
+**completely clean console** — the exact signature `CLAUDE.md` attributes to a
+garbage-collected timer, because `pcall(draw)` swallows the real error. Diagnosed by looking
+for a layer-3 Hammerspoon window in `hs.window.list(true)` and finding none. Fixed by moving
+the three helpers above their first use, and added to `CLAUDE.md`'s gotchas so the next
+session reads "check the draw path first" rather than chasing timers.
+
+**Verified after the fix:** panel drawing again, console clean, full ⌘⌃⌥S walk completing, and
+`Desktop 8 ● ● → opendap-registry · vscode` with the VS Code icon (via D84, since his session
+predates the load). `hs.window.get` confirmed to resolve ordinary windows from a CoreGraphics
+id — Terminal, Preview, MacDown, Finder all OK — while windows with no accessibility element
+at all return nil, which is why the focus is best-effort and the Desktop switch is not.
+
+**Not verified: the click on `T3` itself**, and the capture of a genuinely new session — both
+need Peter at the keyboard, and both are one action each.

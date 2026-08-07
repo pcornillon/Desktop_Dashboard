@@ -4,7 +4,7 @@
 git state.
 **Produces:** `desktop_dashboard.lua` — a single-file tool loaded from
 `~/.hammerspoon/init.lua` — plus `claude-dashboard-state.sh`, its Claude Code hook.
-**State:** v58, working and in daily use; see `STATUS.md`.
+**State:** v59, working and in daily use; see `STATUS.md`.
 
 Context for AI coding sessions on this repo. Read this before changing
 `desktop_dashboard.lua`. `README.md` is the user-facing install/usage doc; **`DECISIONS.md`
@@ -18,7 +18,7 @@ design ruling lives there as a numbered `D##`.
 | `CLAUDE.md` (this file) | what the project is, the architecture, the layout |
 | `STATUS.md` | where things stand right now, ending in the **active thread** |
 | `LOG.md` | one line per prompt — scan this to see what has been done |
-| `DECISIONS.md` | **D1–D84** — every design ruling and the measurement behind it |
+| `DECISIONS.md` | **D1–D85** — every design ruling and the measurement behind it |
 | `TASKS.md` | the work list: numbered tasks with `Status:` lines |
 
 ## What this project is
@@ -41,7 +41,7 @@ The module returns a table `M` with a `CONFIG` block at the top and `M.start()` 
 ```
 CLAUDE.md               this file — project context, architecture, layout
 STATUS.md               where things stand + active thread
-DECISIONS.md            D1–D84 — every design ruling, with its measurement
+DECISIONS.md            D1–D85 — every design ruling, with its measurement
 TASKS.md                numbered work list with Status: lines
 LOG.md                  append-only one-line-per-prompt index
 README.md               human-facing overview, controls, config, limitations
@@ -145,16 +145,18 @@ recognising a session's own window.
 **Terminal.app and iTerm2** (D82) — both have an AppleScript dictionary that reports windows
 on Spaces you are not looking at, and a window id `hs.spaces` accepts, which are the two
 things a Desktop line needs. Any other terminal gets a **`T#` line from its hook
-state file** (D81) — and, if it runs inside an editor the panel can see, a **Desktop line
-too**: `M.termApps` maps its `TERM_PROGRAM` to an app, and a window of that app whose TITLE
-names the session's repo is where it lives (D84, `vscode` → `Code`). That is the only thing a
-title is ever read for; it never names anything (D75). And a minimized session window reports no
+state file** (D81) — and a **Desktop line too**, because the panel records **the window that
+was frontmost when the session started** and places it by that window ever after (**D85**).
+That works for any terminal at all. Failing it — a session already running when the panel
+loaded — `M.termApps` maps the `TERM_PROGRAM` to an app and a window of that app whose TITLE
+names the session's repo is where it lives (**D84**, `vscode` → `Code`). That is the only
+thing a title is ever read for; it never names anything (**D75**). And a minimized session window reports no
 Space, so it gets no Desktop line either — it is still in the `T#` list, which is keyed by
 window.
 
 ## Where the design rulings live
 
-They are **not** in this file. `DECISIONS.md` holds all 84, with the measurements intact —
+They are **not** in this file. `DECISIONS.md` holds all 85, with the measurements intact —
 the ~40 ms `hs.window.get` cost, the 750-sample dot study, the Menlo 13 glyph widths, the
 observation dates. The ones most likely to be violated by accident:
 
@@ -164,7 +166,7 @@ observation dates. The ones most likely to be violated by accident:
 | label detection | **D67** first — it rewrote what names a Desktop; then **D7**–**D9**, **D13**, four false positives from matching repo names in free text |
 | naming by hand (⌘⌃⌥N) | **D76** — a name belongs to a project, never to a Desktop; it supersedes **D16** |
 | the claude dot | **D67** (a session belongs to the Desktop its WINDOW is on), then **D17**–**D19** — what the terminal title can and cannot tell you |
-| the session poll | **D82** (Terminal + iTerm, and the two measurements a third terminal would have to pass), **D81** (everything else, from its hook file), **D84** (placing one that runs inside an editor) |
+| the session poll | **D82** (Terminal + iTerm, and the two measurements a third terminal would have to pass), **D81** (everything else, from its hook file), **D85** (placing one by the window it started in), **D84** (the title fallback) |
 | the ⌘⌃⌥g pull | **D30**–**D36** — the only code here that writes to a repository |
 | drawing / icons | **D40**–**D59**, and **D68**–**D71** for the clickable legend |
 
@@ -191,6 +193,13 @@ These are platform facts rather than choices, which is why they are here and not
   the first commit and cost nothing visible until **D75** made a document the *only*
   evidence — then MacDown, the editor Peter reads every `.md` in, stopped naming anything.
   **Symptom to recognise:** one particular editor never names a Desktop while others do.
+- **A blank panel and a wedged ⌘⌃⌥S walk mean `draw()` is throwing, at least as often as
+  they mean a collected timer.** `pcall(draw)` swallows the error, so the console stays clean
+  and the symptom is identical to the garbage-collection trap below. **Check the draw path
+  first**: the cheapest test is `hs -c` for a layer-3 Hammerspoon window in
+  `hs.window.list(true)` — no window means nothing is being drawn at all. This cost ten
+  minutes on 2026-08-07, when a local was used one function above where it was declared and so
+  resolved to a nil global (**D85**).
 - **Keep a live reference to any `hs.timer.doAfter` whose callback must run.** A pending
   timer with nothing referencing it can be garbage-collected before it fires — no error,
   no log, it just never happens. The ⌘⌃⌥s walk chains one `doAfter` per Desktop, and with

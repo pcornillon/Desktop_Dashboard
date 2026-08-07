@@ -1283,3 +1283,51 @@ change tense to stand alone.
   Code icon, in the session colour, while `T3` listed the same session.
 - **Where:** `M.termApps`, `titleNamesRepo`, `placeHookSession`, `hookSessionsSplit`,
   `screenEntries`, `draw` — `v58`.
+
+### D85. A session is placed by the window it started in
+- **Decision:** when a new hook state file appears, the panel records **the window that is
+  frontmost at that instant** against that session id, and places the session by that window
+  from then on — `hs.spaces.windowSpaces`, exactly as Terminal and iTerm sessions are placed.
+  The mapping is persisted, and dropped when the session ends. **D84's title matching becomes
+  the fallback**, for sessions that were already running before the panel loaded.
+- **Why this is the right shape, and D84 was not:** a shell cannot report its own window, so
+  the panel had been reduced to matching a repo name against a window title. But there is one
+  moment when the window is knowable without matching anything — **the instant the session
+  starts, its window is by definition the frontmost one.** **Peter's idea**, offered as an
+  aside on 2026-08-07: *"would another option be to have claude write in a file which project
+  it is working, which terminal it is running from and the Desktop it is in?"* Two thirds of
+  that already existed; this is the third, obtained where it is actually available.
+- **What it buys over D84:** it works for **every** terminal, including Ghostty and kitty
+  whose titles say nothing about the repo; it reads **no titles at all**, so D75 is untouched
+  rather than carefully bounded; and it is **D67-faithful** — a session belongs to the Desktop
+  its window is on, dynamically, so moving the window moves the session.
+- **The `SessionStart` hook (D83) is what makes it possible.** Without a file at session
+  start, the only observable moment would be the first prompt, by which time the focus has
+  usually moved. A `hs.pathwatcher` on the state directory catches the file within a second;
+  the 3 s dot poll is the backstop.
+- **Two guards, both load-bearing:**
+  1. **The frontmost window is accepted only if its application is the one the session's own
+     `term` names** (`vscode` → `Code`). Without it, starting a session and immediately
+     switching away pins it to whatever you switched to — a confident, wrong Desktop.
+  2. **Sessions that predate the load are never captured.** Their start moment is gone, so the
+     frontmost window says nothing about them, and with two editor windows open it would say
+     something confidently wrong. They fall back to D84.
+- **Clicking such a line now raises its window** (`raiseWindowOnSpace`), which
+  `focusTerminalWindow` could not do — it drives Terminal's AppleScript, and the window here
+  belongs to VS Code or Cursor. The Space is switched first and the focus **retried three
+  times over a second**, because a window on the Space you are arriving at cannot be looked up
+  until the switch finishes, and how long that takes is an animation rather than a number.
+  Verified that an ordinary window resolves from its CoreGraphics id (`hs.window.get` → OK for
+  Terminal, Preview, MacDown, Finder); windows that expose no Accessibility element at all —
+  the ChatGPT/Claude class — return nil, which is why the focus is best-effort and the Desktop
+  switch is not.
+- **A bug worth recording, because it cost the panel entirely for ten minutes:**
+  `hookSessionEntries` was calling `placeHookSession` **before that local was declared**, so it
+  resolved to a nil global. `draw()` threw on every pass, the panel vanished, and the ⌘⌃⌥S walk
+  wedged part-way with a clean console — *precisely* the signature `CLAUDE.md` attributes to a
+  garbage-collected timer. **A blank panel and a stalled walk mean "draw() is throwing" at
+  least as often as they mean a GC'd timer**, and `pcall(draw)` is what hides it. Fixed by
+  moving the three helpers above their first use.
+- **Where:** `sessionWindows`, `noteSessionWindows`, `sessionsAtStart`, `placeHookSession`,
+  `raiseWindowOnSpace`, the `win:` click id, `M.start`/`M.stop`, `saveLayout`/`restoreNames` —
+  `v59`.
