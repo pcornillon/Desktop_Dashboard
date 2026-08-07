@@ -1168,3 +1168,44 @@ change tense to stand alone.
   `May I edit orbit_rea…` on the dimmed line beneath.
 - **Where:** `readHookSessions`, `hookSessionEntries`, `sessionEntries`, `draw`,
   `M.showHookSessions` — `v56`.
+
+### D82. iTerm is a first-class terminal — both blocking questions were measured
+- **Decision:** the session poll reads **Terminal.app and iTerm2**, in one AppleScript. iTerm
+  sessions get real Desktop lines, dots, and `T#` entries, exactly like Terminal ones, and are
+  excluded from D81's hook-only list so they cannot be drawn twice.
+- **The two measurements this waited on**, both taken 2026-08-06 against a live iTerm window
+  Peter opened on a Desktop he was not standing on:
+  1. **Does iTerm2's AppleScript report windows on INACTIVE Spaces?** **Yes.** The window was
+     returned while the active Spaces were 12 and 532 and it sat on 205. This was the
+     question that decided whether any of it was possible: it is the reason the poll is
+     AppleScript rather than Accessibility (**D3**).
+  2. **Is iTerm2's AppleScript window `id` the id `hs.spaces` takes?** **Yes.**
+     `hs.spaces.windowSpaces(26169)` → `{205}` for the window AppleScript called 26169. D67
+     had to establish the same thing for Terminal.
+- **iTerm answers a BETTER question than Terminal does.** Terminal gives one composed string —
+  `"<cwd> — <glyph> <task> — … claude — 173×63"` — and the working directory has to be parsed
+  off the front of it. iTerm has `variable named "session.path"`, which **is** the working
+  directory, from its own API. Only the spinner glyph is read from prose, and that is written
+  by Claude Code rather than composed by the terminal.
+- **Two syntax traps, both of which cost time:** `variable named "session.path" of sn` raises
+  **-1723 "Access not allowed"**, which reads as a permissions failure and is nothing but a
+  syntax error — `variable named` is a *command* on the session, so it needs
+  `tell sn to set p to (variable named "session.path")`. And iTerm's enumeration is per
+  window → tab → **session**, because a split pane is a session; all of them share the one
+  window id, which is what places them on a Desktop.
+- **One script, not two tasks.** A second `runTask` would mean a second in-flight guard, a
+  second timeout and a second way to wedge (**D65**). Terminal lines stay `<wid>|<title>`;
+  iTerm lines are `I|<wid>|<path>|<name>`, and `IFRONT` marks its frontmost window.
+  Which of the two front ids counts is settled by asking the OS which application is
+  frontmost, not by guessing.
+- **A session is recognised as claude by "claude" appearing in the session name**, which is
+  where iTerm puts the running job — `✳ Claude Code (claude)`. That is the same looseness the
+  Terminal branch has always had, deliberately: matching the exact job name would break the
+  moment anything wraps it, and `caffeinate ◂ claude` is already routine.
+- **Verified live**: with Peter's session running `claude` in `~/Git_Repos/opendap-registry`
+  in iTerm on Desktop 8, the panel drew `Desktop 8 ● ● → opendap-registry` with the iTerm
+  icon, plus `T5 ● ● opendap-registry`. Photographed, not inferred.
+- **Cursor remains out of reach** and D81's `T#` line is its ceiling: Electron, no usable
+  AppleScript dictionary, and a title naming a file and a workspace rather than the session.
+- **Where:** `CLAUDE_TITLE_SCRIPT`, `parseITermSession`, `parseClaudeTitles`,
+  `M.hookSessionTerminals` — `v57`.

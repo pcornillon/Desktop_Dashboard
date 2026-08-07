@@ -1,15 +1,15 @@
 # STATUS.md — Desktop Dashboard
 
 Living snapshot of where this project stands. Rewritten, not appended.
-Last updated: **2026-08-06 17:40 EDT** (`cornillon-laptop`).
+Last updated: **2026-08-06 18:45 EDT** (`cornillon-laptop`).
 
 ---
 
 ## State
 
-- **The tool is at `v56`, in daily use, and everything since `v52` has now been run.**
-  `M.version` reads `"v56 (sessions in any terminal, from their hook files; the hook no
-  longer needs jq, 2026-08-06)"`.
+- **The tool is at `v57`, in daily use, and everything since `v52` has now been run.**
+  `M.version` reads `"v57 (iTerm sessions get real Desktop lines; measured, not assumed,
+  2026-08-06)"`.
   `v51` before it was the **merge of two machines' parallel work**. One file.
 - **`v53` fixed two connected naming faults, both found from the laptop on 2026-08-05.**
   `M.docApps` listed `["MacDown 3000"]` and the app is called **`MacDown`** — so no MacDown
@@ -77,7 +77,7 @@ Everything in this section was run or read, not recalled.
 - Working tree clean and level with `origin/main` before the migration began
   (`6442953`).
 
-## Decisions taken (D1–D81)
+## Decisions taken (D1–D82)
 
 D1–D64 were lifted from `CLAUDE.md` on 2026-08-03. **Eleven are new on 2026-08-04.** Written
 here: every `hs.task` carries a timeout (**D65**), a subprocess writes to a file rather than
@@ -109,52 +109,48 @@ Desktop (D76, superseding D16).
 Portability: no synced folder, no polling (D77); the code's own install steps must not
 contradict INSTALL.md (D78). TeXShop measured at 0.1 ms and let into docApps, closing D32's
 five-day-old live tension (D79). The hook carries no external dependency (D80), and a session
-with no window still gets a line (D81).
+with no window still gets a line (D81). iTerm2 is read by the same poll as Terminal, after
+both blocking questions were measured (D82).
 Remote work: legend words are buttons (D68–D71), the hook raises the alert (D72–D73).
 
 ## Active thread — resume here
 
-**Nothing is in flight.** `v56` is loaded and everything in it has been exercised.
+**Nothing is in flight.** `v57` is loaded, and every terminal question the colleague raised is
+now either solved or answered with a measurement.
 
-**Today's work, in order:** `v53`/`v54` fixed the MacDown allowlist key and made a ⌘⌃⌥N name
-belong to a project (D76–D78); `v55` measured TeXShop and let it into `docApps` (D79); `v56`
-made the hook dependency-free and gave a line to sessions the title poll cannot see
-(D80, D81, Task #13) — all of which came out of a colleague being unable to get the panel
-working on his Mac.
+**Where sessions come from, as of `v57`:**
 
-**What is verified, not assumed:**
+- **Terminal.app and iTerm2** — full Desktop lines, dots, `T#` entries. Both have an
+  AppleScript dictionary that reports windows on inactive Spaces and a window id `hs.spaces`
+  accepts, which are the two things a Desktop line needs (**D82**, both measured).
+- **Everything else** — Ghostty, kitty, Cursor's built-in terminal, ssh — a `T#` line from
+  the hook state file, with dots and the terminal's name and **no Desktop** (**D81**).
+- **Cursor cannot do better than that**: Electron, no usable AppleScript dictionary, and a
+  title that names a file and a workspace rather than the session.
 
-- **MacDown reports its documents**; the same two windows saved `doc=''` under `v52` and full
-  repo paths under `v54`, and ⌘⌃⌥S then renamed two Desktops from `MacDown` to their projects.
-- **⌘⌃⌥N renames the project and refuses where there is none** — confirmed by Peter.
-- **TeXShop's `AXDocument` costs 0.10–0.23 ms**, the same as MacDown and Preview.
-- **The hook, with `jq` off the PATH**: the full suite in
-  `ISSUE_ANALYSES/Python/test_claude_dashboard_hook.py` passes, and it is **4× faster than
-  the `jq` version** (33 ms against 121–128).
-- **A non-Terminal session draws**: a fake `Cursor` state file produced
-  `T4 ● ● MODIS_L2_Manuscript · Cursor` with the right dots and the question beneath.
-- **The deployed hook is byte-identical** to this repo's copy again.
+**A third terminal would have to pass D82's two measurements** before it could be added to
+`M.hookSessionTerminals` and read by the poll. That is the procedure; it is not a matter of
+adding a name to a list.
 
-**The one open piece of work — iTerm2 Desktop placement.** Peter has offered to install iTerm
-on this machine, and that is what it needs. **Two measurements, in this order:**
-
-1. Does iTerm2's AppleScript enumerate windows on **inactive** Spaces the way Terminal's
-   does? If not, nothing else matters — that is the whole reason the poll is Terminal-only.
-2. Is iTerm2's AppleScript window `id` the same id `hs.spaces.windowSpaces` takes? D67 had to
-   establish this for Terminal before any of the current design worked.
-
-If both pass, iTerm sessions get real Desktop lines and stop being `Sessions elsewhere`.
-**Cursor cannot be fixed this way** and the `T#` line is its ceiling: Electron, no usable
-AppleScript dictionary, and titles that name a file and a workspace rather than the session.
+**One gap, deliberately left, and worth deciding on:** the hook fires on `UserPromptSubmit`,
+`Notification`, `Stop` and `SessionEnd` — **not on session start**. So a session that has been
+opened but not yet prompted writes no state file and, in a terminal the poll cannot read,
+appears nowhere. That is exactly what Peter hit when he first started `claude` in iTerm.
+Registering the hook on `SessionStart` as well, writing an `idle` state, would close it — one
+more line in `settings.json` for every machine, and `hookSessionEntries` already draws `idle`
+with no claude dot.
 
 **Still never exercised:** click-to-cycle on a session line; ⌘⌃⌥g and its pull through the
 rewritten `runTask`; the clickable legend words alongside the per-project Desktop lines.
 
-**How to check the panel from a session** (found today, and it is in `CLAUDE.md`'s Testing
-section): `hs.window.snapshotForID(<the panel's kCGWindowNumber>, true)`, taking the largest
-layer-3 Hammerspoon window from `hs.window.list(true)`. **`hs.screen:snapshot()` does not
-work** — it returns the desktop with the canvases missing, which reads as a bug that isn't
-there.
+**How to check the panel from a session** (in `CLAUDE.md`'s Testing section):
+`hs.window.snapshotForID(<the panel's kCGWindowNumber>, true)`, taking the largest layer-3
+Hammerspoon window from `hs.window.list(true)`. **`hs.screen:snapshot()` does not work** — it
+returns the desktop with the canvases missing.
+
+**The colleague needs both repos** — `Desktop_Dashboard` for `v57`, and whichever repo holds
+his hook, for the copy that records `TERM_PROGRAM`. Without the new hook there are no
+`Sessions elsewhere` lines; without `v57` there are no iTerm lines.
 
 **The iMac has pulled none of today's work**, and its hook is still the `jq` version.
 

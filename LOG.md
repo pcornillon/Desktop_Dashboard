@@ -176,3 +176,14 @@ invented index is worse than a short one.
     fake `Cursor` state file by photographing the panel with `hs.window.snapshotForID` —
     `hs.screen:snapshot()` cannot see our canvases. Deployed hook synced to `claude-config`
     and diffed
+- ★ **P7** `1701_cornillon-laptop` · 2026-08-06 18:20 EDT · iTerm installed — measure it, then
+  make it first-class
+  → **v57**, **D82**, Task **#14**. Peter's *"no claude session shows"* had two causes and
+    the deeper one was that **iTerm was not read at all**; the hook-only path could not cover
+    it either, because the hook fires on prompts and he had only started the session. **Both
+    blocking measurements passed**: iTerm2's AppleScript returned a window on Space 205 while
+    12 and 532 were active, and `hs.spaces.windowSpaces(26169)` accepted its window id. So
+    the poll now reads both terminals in one script, and **iTerm is the better source** —
+    `variable named "session.path"` IS the cwd, where Terminal's has to be parsed off a
+    composed title. Photographed: `Desktop 8 ● ● → opendap-registry` with the iTerm icon, and
+    `T5` in the sessions list

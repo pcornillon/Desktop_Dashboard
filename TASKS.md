@@ -457,3 +457,28 @@ repo's copy alone would have changed nothing (the Task #1 trap, hit again).
 possible on a machine with no iTerm: whether iTerm2's AppleScript enumerates windows on
 inactive Spaces, and whether its window `id` is the one `hs.spaces` uses. Peter has offered
 to install it.
+
+
+## Task #14 — Read iTerm2 as well as Terminal (completes #13)
+
+**Status:** done (2026-08-06)
+
+Peter installed iTerm2 and opened a session so the two blocking measurements could finally be
+taken. **Both passed** (**D82**): iTerm2's AppleScript reports windows on inactive Spaces, and
+its window `id` is the id `hs.spaces.windowSpaces` accepts — `{205}` for window 26169, while
+the active Spaces were 12 and 532.
+
+So iTerm is now read by the same poll, in the same AppleScript, and its sessions get real
+Desktop lines rather than D81's window-less `T#` entries. It is excluded from the hook-only
+list so it cannot appear twice.
+
+**iTerm is the better source of the two.** Terminal composes one string and the working
+directory has to be parsed off the front; iTerm's `variable named "session.path"` **is** the
+working directory. Only the spinner glyph is read from prose in either case.
+
+**Verified live and photographed:** `Desktop 8 ● ● → opendap-registry` with the iTerm icon,
+and `T5 ● ● opendap-registry` in the sessions list.
+
+`v56` → **`v57`**.
+
+**Cursor is still out of reach**, and D81's `T#` line remains its ceiling.

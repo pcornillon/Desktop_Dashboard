@@ -19,12 +19,12 @@ screen to confirm the panel appeared (step 5). Everything else can be done for y
   it — if you are running an older copy, that is why your red dot never lights.)
 
 **Which terminal you run `claude` in matters, but less than it used to.** Sessions get a
-**Desktop line** only from Terminal.app, whose AppleScript is the one API that reports window
-titles for Spaces you are not looking at. A session in iTerm, Ghostty, kitty or Cursor's
-built-in terminal still appears in the **`T#` sessions list**, drawn from its hook state file
-— project, dot, question, and which terminal it is in — but with no Desktop attached. That
-half needs the hook installed (see *Optional: the red dot*, below); everything else on the
-panel works regardless.
+**Desktop line** from **Terminal.app and iTerm2** — the two whose AppleScript reports windows
+for Spaces you are not looking at, which is what placing a session on a Desktop requires. A
+session in Ghostty, kitty or Cursor's built-in terminal still appears in the **`T#` sessions
+list**, drawn from its hook state file — project, dot, question, and which terminal it is in
+— but with no Desktop attached. That half needs the hook installed (see *Optional: the red
+dot*, below); everything else on the panel works regardless.
 
 ## Steps
 

@@ -48,13 +48,33 @@ those files — dots, project, terminal name, no Desktop line.
   question on the dimmed line under it. **`hs.screen:snapshot()` does not work for this** —
   it returns the desktop without Hammerspoon's canvases. See `CLAUDE.md`'s Testing section.
 
+## Resolved the same day: iTerm2 (D82)
+
+Peter installed iTerm2 and opened a session so the two measurements could be taken. **Both
+passed**, against a live window on a Desktop he was not standing on:
+
+| question | result |
+|---|---|
+| Does iTerm2's AppleScript report windows on **inactive** Spaces? | **Yes** — returned a window on Space 205 while 12 and 532 were active |
+| Is its AppleScript window `id` the id `hs.spaces` takes? | **Yes** — `windowSpaces(26169)` → `{205}` |
+
+So iTerm sessions get real Desktop lines, from the same poll, and iTerm is excluded from the
+hook-only list. It is also the **better** source: `variable named "session.path"` *is* the
+working directory, where Terminal's has to be parsed off the front of a composed title.
+
+Two traps: `variable named "x" of sn` raises **-1723 "Access not allowed"**, which is a syntax
+error and not a permissions one (`variable named` is a command — `tell sn to ...`); and
+enumeration is window → tab → **session**, because a split pane is a session.
+
+**A third terminal has to pass those same two measurements** before it can be added to
+`M.hookSessionTerminals`.
+
 ## Still open
 
-- **iTerm2 placement.** Extending the title poll to iTerm would give its sessions real
-  Desktop lines. Two things have to be measured first, and neither can be measured on a
-  machine with no iTerm: whether iTerm2's AppleScript enumerates windows on **inactive**
-  Spaces the way Terminal's does, and whether its window `id` is the id `hs.spaces` uses —
-  D67 had to establish both for Terminal.
 - **Cursor placement is not reachable** by any route found here. It is an Electron app with
   no usable AppleScript dictionary, and its window titles name a file and a workspace, never
   the session. The `T#` line is the ceiling.
+- **The hook does not fire on session start** — only on `UserPromptSubmit`, `Notification`,
+  `Stop` and `SessionEnd`. So a session opened but not yet prompted has no state file and, in
+  a terminal the poll cannot read, appears nowhere. This is what Peter hit first. Registering
+  it on `SessionStart` too, writing an `idle` state, would close the gap.

@@ -291,3 +291,47 @@ Copied, `chmod +x`, `diff` clean. Peter's own sessions now write `term` too.
 **His two questions.** Yes: a Cursor session shows in the sessions (`T#`) list, not the
 Desktop list, and that is the ceiling for Cursor. And yes — installing iTerm here is exactly
 what would let the two open measurements be made.
+
+## P7 · 2026-08-06 18:20 EDT · iTerm installed, session started, nothing shows
+
+Peter: iTerm2 installed, a window opened on another Desktop, `cd`'d to `opendap-registry`,
+`claude` started — and no session line.
+
+**Two causes, and the one he could see was the shallower.** D81's hook-only path could not
+have covered it either: **the hook fires on `UserPromptSubmit`, `Notification`, `Stop` and
+`SessionEnd`, so starting a session writes nothing at all.** He had started claude and not yet
+typed anything, so there was no state file to draw from. Confirmed by listing
+`~/.hammerspoon/claude_state/` — no file for that session, while this session's own file had
+just gained `"term":"Apple_Terminal"`, which incidentally proved the newly deployed hook was
+live.
+
+The deeper cause was simply that **iTerm was not read at all**. So it was measured and fixed.
+
+**Both blocking measurements passed** (D82), against his live window:
+
+- **Inactive Spaces:** iTerm2's AppleScript returned the window while the active Spaces were
+  **12 and 532** and it was sitting on **205**. This was the question everything depended on.
+- **Window id:** `hs.spaces.windowSpaces(26169)` → `{205}` for the window AppleScript called
+  26169. Same id space, as D67 had to establish for Terminal.
+
+**And iTerm turned out to be the better source of the two.** Terminal gives one composed
+string with the cwd on the front of it; iTerm has `variable named "session.path"`, which *is*
+the working directory. Only the spinner glyph is read from prose either way, and Claude Code
+writes that.
+
+Two syntax traps, both worth the write-up: `variable named "session.path" of sn` raises
+**-1723 "Access not allowed"**, which reads as a permissions problem and is purely a syntax
+one — it is a command, so it needs `tell sn to set p to (...)`. And iTerm enumerates window →
+tab → **session**, because a split pane is a session; they share the window id, which is what
+places them all on one Desktop.
+
+Built into the **same AppleScript** rather than a second `runTask`: another task means another
+in-flight guard, another timeout and another way to wedge (D65). Terminal lines stay
+`<wid>|<title>`, iTerm lines are `I|<wid>|<path>|<name>`, and which terminal owns the
+frontmost window is settled by asking the OS, not by guessing. iTerm was added to
+`M.hookSessionTerminals` at the same time so D81 cannot draw the same session again without a
+Desktop.
+
+**Verified by photographing the panel:** `Desktop 8 ● ● → opendap-registry` with the iTerm
+icon, in the session colour, plus `T5 ● ● opendap-registry` in the sessions list. `v56` →
+`v57`.

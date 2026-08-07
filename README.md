@@ -653,18 +653,18 @@ icons turned off, are: one app → its name; several sharing a subject → that 
 
 Two things to know before you wonder why a line is missing:
 
-- **Desktop lines are read from Terminal.app only.** A session in iTerm, Ghostty, kitty or
-  Cursor's built-in terminal gets no *Desktop* line, because placing a session on a Desktop
-  needs its window, and Terminal is the only one that will report its windows for Spaces you
-  are not looking at. Those sessions do appear in the `T#` list — see **Sessions elsewhere**
-  below.
+- **Desktop lines come from Terminal.app and iTerm2.** Placing a session on a Desktop needs
+  its window, and those two are the terminals that will report their windows for Spaces you
+  aren't looking at. A session in Ghostty, kitty or Cursor's built-in terminal still appears
+  in the `T#` list — see **Sessions elsewhere** below — but with no Desktop attached.
 - A **minimized** terminal window reports no Desktop, so its session gets no Desktop line.
   It still appears in the `T#` sessions view.
 
 ### Sessions elsewhere
 
-A session that isn't in Terminal.app is drawn from its **hook state file** instead, which
-Claude Code writes from inside the session whatever it is running in. You get the project,
+A session in a terminal the poll can't read — Ghostty, kitty, Cursor's built-in terminal —
+is drawn from its **hook state file** instead, which Claude Code writes from inside the
+session whatever it is running in. You get the project,
 the dot, what it's asking, and the name of the terminal it's in:
 
 ```

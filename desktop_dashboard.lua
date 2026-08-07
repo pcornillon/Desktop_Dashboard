@@ -75,7 +75,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v56 (sessions in any terminal, from their hook files; the hook no longer needs jq, 2026-08-06)"
+M.version = "v57 (iTerm sessions get real Desktop lines; measured, not assumed, 2026-08-06)"
 
 -- ============================ CONFIG ============================
 
@@ -169,13 +169,17 @@ M.claudeHookMaxAgeHours = 12     -- ignore state files older than this
 -- knows the repo and not the window, and a Desktop claim it cannot support is
 -- worse than no claim (D67).
 --
--- `Apple_Terminal` is excluded: the title poll already draws those, with a
--- window and a Desktop behind them. So is a file with no `term` at all, which
--- is one written by a hook older than v56 — those age out within
--- claudeHookMaxAgeHours.
+-- The terminals the title poll ALREADY covers are excluded, or their sessions
+-- would be drawn twice — once with a Desktop and once without. So is a file
+-- with no `term` at all, which is one written by a hook older than v56; those
+-- age out within claudeHookMaxAgeHours.
+--
+-- Add a terminal to `hookSessionTerminals` only when the poll can actually see
+-- it, which means an AppleScript dictionary that reports windows on inactive
+-- Spaces AND a window id `hs.spaces` accepts (D82 measured both for iTerm).
 M.showHookSessions = true
 M.hookSessionHeader = "Sessions elsewhere:"
-M.hookSessionTerminal = "Apple_Terminal"   -- the one the title poll covers
+M.hookSessionTerminals = { ["Apple_Terminal"] = true, ["iTerm.app"] = true }
 M.claudeDotColors  = {
   working = { red = 1.00, green = 0.78, blue = 0.20, alpha = 1 },   -- yellow: computing
   waiting = { red = 1.00, green = 0.28, blue = 0.26, alpha = 1 },   -- red: wants you
@@ -744,23 +748,62 @@ end
 -- reports windows on ALL Spaces, which Accessibility cannot do — that is the
 -- whole reason the dot can stay live for a Desktop you are not looking at.
 -- Guarded by `is running` so it never launches Terminal just to ask.
+-- ONE script for both terminals, not two tasks: a second `runTask` would mean a
+-- second in-flight guard, a second timeout and a second way to wedge (D65).
+--
+-- Terminal lines are `<wid>|<title>`; iTerm lines are `I|<wid>|<path>|<name>`.
+-- The shapes differ because the two terminals answer different questions, and
+-- iTerm answers the better ones (D82):
+--
+--   Terminal  the title is all there is, and the cwd has to be parsed out of a
+--             string macOS composed — "<cwd> — <glyph> <task> — … claude — …".
+--   iTerm     `variable named "session.path"` IS the working directory, from
+--             iTerm's own API, and the session name carries the same spinner
+--             glyph and task text Claude Code writes. Nothing is parsed out of
+--             prose except the glyph.
+--
+-- Both are enumerated per WINDOW, and both report windows on Spaces you are not
+-- looking at — measured for iTerm on 2026-08-06, the question that decided
+-- whether this was possible at all.
 local CLAUDE_TITLE_SCRIPT = [[
+set out to ""
 if application "Terminal" is running then
   tell application "Terminal"
-    set out to ""
     -- Which window is frontmost, so a session you are actually looking at can
     -- be marked as seen. `front window` raises when there are none.
     try
-      set out to "FRONT|" & ((id of front window) as text) & linefeed
+      set out to out & "FRONT|" & ((id of front window) as text) & linefeed
     end try
     repeat with w in windows
       set out to out & ((id of w) as text) & "|" & (name of w) & linefeed
     end repeat
-    return out
   end tell
-else
-  return ""
 end if
+if application "iTerm" is running then
+  tell application "iTerm"
+    try
+      set out to out & "IFRONT|" & ((id of current window) as text) & linefeed
+    end try
+    repeat with w in windows
+      set wid to (id of w) as text
+      repeat with t in tabs of w
+        repeat with sn in sessions of t
+          -- A tab can be split, so this is per SESSION, all sharing the one
+          -- window id — which is what places every one of them on a Desktop.
+          -- `variable named` is a COMMAND on the session, not a property of it:
+          -- the `... of sn` form raises -1723 "Access not allowed", which reads
+          -- like a permissions problem and is only a syntax one.
+          set p to ""
+          try
+            tell sn to set p to (variable named "session.path")
+          end try
+          set out to out & "I|" & wid & "|" & p & "|" & (name of sn) & linefeed
+        end repeat
+      end repeat
+    end repeat
+  end tell
+end if
+return out
 ]]
 
 local function firstCodepoint(s)
@@ -794,11 +837,42 @@ local function claudeCwdFromTitle(title)
   return nil
 end
 
+-- One iTerm session, from `I|<wid>|<path>|<name>` (D82). Returns the same three
+-- things the Terminal branch below derives from a title — project, state,
+-- summary — but the project comes from iTerm's own `session.path` rather than
+-- from the front of a composed string, so a folder named like a separator
+-- cannot break it.
+local function parseITermSession(wid, path, name)
+  if not (name and name:lower():find("claude", 1, true)) then return nil end
+  local cwd = tostring(path or ""):match("([^/]+)/?$")
+  if not cwd or cwd == "" then return nil end
+  -- The glyph Claude Code writes leads the name in both terminals: a Braille
+  -- frame while it computes, ✳ when it is not (D17).
+  local glyph = name:match("^(%S+)") or ""
+  local cp    = firstCodepoint(glyph)
+  local state = (cp and cp >= 0x2800 and cp <= 0x28FF) and "working" or "idle"
+  -- iTerm appends the running job as "(claude)"; that is how this session was
+  -- recognised and it is not part of the task text.
+  local summary = name:gsub("^%S+%s*", ""):gsub("%s*%b()%s*$", "")
+  return { wid = tonumber(wid), project = cwd, state = state, summary = summary }
+end
+
 local function parseClaudeTitles(text)
-  local byRepo, sessions, frontId = {}, {}, nil
+  local byRepo, sessions, frontId, iFrontId = {}, {}, nil, nil
   for line in tostring(text or ""):gmatch("[^\r\n]+") do
     local fid = line:match("^FRONT|(%d+)$")
     if fid then frontId = tonumber(fid) end
+    local ifid = line:match("^IFRONT|(%d+)$")
+    if ifid then iFrontId = tonumber(ifid) end
+    local iwid, ipath, iname = line:match("^I|(%d+)|([^|]*)|(.*)$")
+    if iwid then
+      local rec = parseITermSession(iwid, ipath, iname)
+      if rec then
+        local key = tostring(rec.project):lower()
+        if byRepo[key] ~= "working" then byRepo[key] = rec.state end
+        sessions[#sessions + 1] = rec
+      end
+    end
     local wid, title = line:match("^(%d+)|(.*)$")
     if not title then title = line end            -- tolerate an id-less read
     local cwd, body = claudeCwdFromTitle(title)
@@ -816,10 +890,20 @@ local function parseClaudeTitles(text)
       }
     end
   end
-  -- Terminal ids ascend with creation order, so ordering is stable across polls
-  -- and T1/T2/T3 keep meaning without anyone registering anything.
+  -- Window ids ascend with creation order in both terminals, so ordering is
+  -- stable across polls and T1/T2/T3 keep meaning without anyone registering
+  -- anything.
   table.sort(sessions, function(a, b) return (a.wid or 0) < (b.wid or 0) end)
-  return byRepo, sessions, frontId
+  -- Which window you are actually looking at, when both terminals are running:
+  -- ask the OS which app is frontmost rather than guessing. Cheap — this is the
+  -- running-application list, not an accessibility read.
+  local front = frontId
+  if iFrontId then
+    local okf, app = pcall(hs.application.frontmostApplication)
+    local n = (okf and app) and (app:name() or "") or ""
+    if n == "iTerm2" or n == "iTerm" then front = iFrontId end
+  end
+  return byRepo, sessions, front
 end
 
 -- Which Desktop a window is on. Unlike hs.window.allWindows this answers for
@@ -950,7 +1034,7 @@ local function readHookSessions()
         local t = hs.json.read(dir .. "/" .. name)
         if type(t) == "table" and t.repo and t.state
            and type(t.term) == "string" and t.term ~= ""
-           and t.term ~= (M.hookSessionTerminal or "Apple_Terminal")
+           and not (M.hookSessionTerminals or {})[t.term]
            and (not t.at or (now - t.at) <= maxAge) then
           out[#out + 1] = {
             sid     = tostring(t.sid or name:gsub("%.json$", "")),
