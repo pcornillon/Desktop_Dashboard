@@ -288,3 +288,6 @@ invented index is worse than a short one.
     processes sitting in `/private/tmp/cc-daemon-…/spare`. `unknown` now draws no line, behind
     `M.showUnknownTerminalSessions`. **The dots are left alone on purpose** — a spawned session
     that is `waiting` is a real permission prompt blocking a real session in that repo
+- **P23** `1701_cornillon-laptop` · 2026-08-07 14:50 EDT · "calling it a wrap"
+  → session closed: active thread refreshed, prompt index regenerated (24 prompts), both repos
+    committed and pushed. `v53` → `v64`, D76–D90, Tasks #8–#17 over the run

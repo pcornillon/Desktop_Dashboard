@@ -1,7 +1,7 @@
 # STATUS.md — Desktop Dashboard
 
 Living snapshot of where this project stands. Rewritten, not appended.
-Last updated: **2026-08-07 14:45 EDT** (`cornillon-laptop`).
+Last updated: **2026-08-07 14:55 EDT** (`cornillon-laptop`) — session closed.
 
 ---
 
@@ -120,55 +120,45 @@ Remote work: legend words are buttons (D68–D71), the hook raises the alert (D7
 
 ## Active thread — resume here
 
-**`v59` is loaded and the panel is healthy** — drawing, console clean, a full ⌘⌃⌥S walk
-completing.
+**Nothing is in flight.** The session of 2026-08-05/07 closed at `v64`, with everything
+committed and pushed.
 
-**D85's capture and its persistence are confirmed.** After the `v60` reload, with **7 of 9
-Desktops still unread**, the panel drew `Desktop 6 ● ● → opendap-registry · vscode` — the
-mapping came off disk, so both the capture (when Peter started that session under `v59`) and
-the saved state work.
+**What this run produced:** `v53` → `v64`, decisions **D76–D90**, Tasks **#8–#17**, and two
+session logs including a reconstruction of one that was never written. It began with a Desktop
+showing a name it should have lost, and ended with the panel able to see a claude session in
+any terminal on the machine.
 
-**Clicking a VS Code session line works** — confirmed 2026-08-07 after three attempts at it
-(`v60` activated Xcode, because `hs.application.get("Code")` returns Xcode; `v61` fixed the
-lookup).
+**The thread that ran through most of it** was a colleague who could not get the panel working
+at all. That turned out to be two silent failures — a hook that needed `jq`, which macOS does
+not ship, and a session poll that read Terminal.app only — and chasing them produced most of
+what is listed above.
 
-**A long-standing sporadic bug was found and fixed in the same exchange.** Peter had been
-unable to reproduce "sometimes clicking a Desktop goes to a different one". It took one
-measurement: **two of eight `hs.spaces.gotoSpace` calls land on the wrong Desktop**, both at
-the start of a burst, and repeating the call works. Every click that changes Desktop is now
-verified and retried (**D88**, `v62`). **The ⌘⌃⌥S walk is covered too** (**D89**, Task #17): every step now confirms it is on the
-Desktop it is about to read, and skips the read rather than labelling a Desktop from another
-one's windows. Measured as asked — two instrumented walks, **zero retries** — so that is
-protection against a known fault rather than a fix for an observed one, and any occurrence now
-prints a console line.
+**Verified live, each photographed or measured:** MacDown's documents (`v54`); ⌘⌃⌥N renaming a
+project; TeXShop at 0.10–0.23 ms (`v55`); the hook `jq`-free and **4× faster** (`v56`); iTerm's
+two blocking measurements and a real Desktop line (`v57`); a VS Code session on its own Desktop
+line (`v58`–`v59`); the click that raises its window (`v61`); **`gotoSpace` failing 2 times in
+8** and every switch now verified (`v62`, `v63`); and the phantom daemon sessions removed
+(`v64`).
 
-**Where a Desktop line comes from, as of `v59`, in order of preference:**
+**Where to pick up:**
 
-- **Its own window** — Terminal.app and iTerm2 (**D82**).
-- **The window it started in** — anything else, recorded at `SessionStart` (**D85**). No
-  titles, any terminal, it follows the window if you move it, and it survives a reload, so it
-  does not wait for a ⌘⌃⌥S.
-- **A window whose title names the repo** — the fallback for a session already running when
-  the panel loaded (**D84**).
-- **No Desktop at all** — a `T#` line in `Sessions elsewhere` (**D81**).
+1. **Watch D83 for a day.** The `SessionStart` hook has thrown off two bugs already — invisible
+   new sessions, then Claude Code's own daemon appearing as `T#` lines. Both fixed; a third
+   would not be a surprise.
+2. **The iMac has pulled none of this**, and its hook is still the `jq` version. It is also the
+   machine the cross-machine alert was built for, so it is the one place `NOTIFY_DROPBOX=1`
+   still matters.
+3. **The colleague needs both repos** — `Desktop_Dashboard` for `v64`, and whichever repo holds
+   his hook, for the copy that needs no `jq`, records `TERM_PROGRAM`, and fires on
+   `SessionStart`.
 
-**A gotcha earned today, now in `CLAUDE.md`:** a blank panel plus a wedged ⌘⌃⌥S walk plus a
-clean console means **`draw()` is throwing** at least as often as it means a collected timer —
-`pcall(draw)` hides it. Cheapest test: look for a layer-3 Hammerspoon window in
-`hs.window.list(true)`; none means nothing is being drawn.
+**Still never exercised, and unchanged by any of this:** click-to-cycle on a Terminal session
+line; ⌘⌃⌥g and its pull through the rewritten `runTask`; the clickable legend words alongside
+the per-project Desktop lines.
 
-**Still never exercised:** click-to-cycle on a Terminal session line; ⌘⌃⌥g and its pull through
-the rewritten `runTask`; the clickable legend words alongside the per-project Desktop lines.
-
-**How to photograph the panel from a session** (in `CLAUDE.md`'s Testing section):
-`hs.window.snapshotForID(<the panel's kCGWindowNumber>, true)`.
-**`hs.screen:snapshot()` does not work.**
-
-**The colleague this work is for needs both repos** — `Desktop_Dashboard` for `v59`, and
-whichever repo holds his hook, for the `jq`-free copy that records `TERM_PROGRAM` and fires on
-`SessionStart`.
-
-**The iMac has pulled none of it.**
+**Two tools this session added, both in `CLAUDE.md`:** photograph the panel with
+`hs.window.snapshotForID` (`hs.screen:snapshot()` cannot see the canvases), and read
+`M.walkStats` after a ⌘⌃⌥S to see whether any Desktop switch had to be retried.
 
 **Finder tags do not travel in git.** After pulling this repo on the other machine, run
 `~/Git_Repos/claude-config/tag-spine.sh ~/Git_Repos/Desktop_Dashboard`.
