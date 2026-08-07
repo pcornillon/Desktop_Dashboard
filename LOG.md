@@ -243,3 +243,13 @@ invented index is worse than a short one.
     `hookSessionEntries` called `placeHookSession` above its declaration, so `draw()` threw on
     every pass — blank panel, wedged ⌘⌃⌥S, clean console, the exact signature `CLAUDE.md`
     ascribes to a collected timer. Now a gotcha of its own
+- ★ **P18** `1701_cornillon-laptop` · 2026-08-07 12:05 EDT · clicking a VS Code session opened
+  Mission Control, and an older one did nothing at all
+  → **v60**, **D86**. `hs.spaces.gotoSpace` **opens Mission Control** — that was the "four
+    fingers up" Peter saw, and why a Terminal line (which goes through `activate`) looked so
+    different. Raising a window now tries the window, then the owning **application**, and
+    only falls back to `gotoSpace` if the app is gone. The inert `T4` was the other half of
+    the same report: D84's title fallback had nothing to match after a reload with no scan.
+    **D85's persistence answers that** — `Desktop 6 ● ● → opendap-registry · vscode` drew with
+    **7 of 9 Desktops still unread**, which is also the first confirmation that the capture and
+    the saved mapping both work

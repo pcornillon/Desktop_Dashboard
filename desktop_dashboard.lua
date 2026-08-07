@@ -75,7 +75,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v59 (a session is placed by the window it started in, whatever the terminal, 2026-08-07)"
+M.version = "v60 (raise an editor session without opening Mission Control, 2026-08-07)"
 
 -- ============================ CONFIG ============================
 
@@ -552,6 +552,7 @@ local spaceProjects   = {}     -- spaceID -> ranked projects, for a Desktop with
 local projectNames    = {}     -- project (lowercased) -> the name ⌘⌃⌥N gave it
 local cycleNext       = {}     -- "<sid>\0<project>" -> which window a click raises next
 local cycleTargets    = {}     -- click id -> that line's windows; rebuilt every draw
+local raiseTargets    = {}     -- click id -> a window to raise; rebuilt every draw
 local frontSession    = nil    -- Terminal's front window id, when it is a session
 local sessionPrev  = {}        -- Terminal window id -> previous state
 local sessionDone  = {}        -- Terminal window id -> finished, unacknowledged
@@ -1964,6 +1965,7 @@ local function hookSessionEntries(startAt, list)
     -- like a Terminal session's: it raises that window, switching Desktop on
     -- the way. Unknown window -> the line is inert, as before.
     local aspace, awid = placeHookSession(h)
+    local aapp = (M.termApps or {})[tostring(h.term or "")]
     local state = M.showClaudeDot and h.state or nil
     if state == "idle" or state == "gone" then state = nil end
     local dots = withPlaceholders({ claudeDotSpec(state), gitDotSpec(gitStateFor(h.project)) })
@@ -1974,14 +1976,15 @@ local function hookSessionEntries(startAt, list)
     local lim = M.sessionSummaryChars or 20
     if uwidth(summary) > lim then summary = summary:sub(1, lim) .. "…" end
     entries[#entries + 1] = {
-      awid = awid, aspace = aspace,
+      awid = awid, aspace = aspace, aapp = aapp,
       dots = dots, prefix = prefix, suffix = project,
       text = prefix .. mid .. project,
     }
     if M.sessionTwoLine and summary ~= "" then
       local indent = string.rep(" ", uwidth(prefix) + 2 + (M.sessionSummaryIndent or 5))
       local line2  = indent .. summary
-      entries[#entries + 1] = { awid = awid, aspace = aspace, dots = {}, dim = true,
+      entries[#entries + 1] = { awid = awid, aspace = aspace, aapp = aapp,
+                                dots = {}, dim = true,
                                 prefix = line2, suffix = "", text = line2 }
     end
   end
@@ -2134,6 +2137,7 @@ local function screenEntries(screen)
         if ic then text = text .. string.rep(" ", iconTextPad(ic)) end
         entries[#entries + 1] = {
           sid = sid, project = h.project, awid = h.wid, aspace = sid,
+          aapp = (M.termApps or {})[tostring(h.term or "")],
           dots = dots, icons = ic, prefix = head, suffix = suffix,
           here = here and nline == 1,
           nameColor = M.sessionColor,
@@ -2746,21 +2750,41 @@ end
 -- another Desktop cannot be looked up until you are on it. The timer is held in
 -- a module local on purpose: a pending doAfter with nothing referencing it can
 -- be collected before it fires, which is the oldest trap in this file.
-local function raiseWindowOnSpace(wid, space)
+-- Raise the window a session is running in, whoever owns it (D86).
+--
+-- **`hs.spaces.gotoSpace` opens Mission Control** to do its work: the screen
+-- zooms out to show every Desktop and every window before landing. Reported
+-- 2026-08-07 — *"the same response I get when I do four fingers up"* — against
+-- a Terminal session line, which switches Desktops with no such thing because it
+-- goes through `activate`. So this never calls it while any other route is open.
+--
+-- The order, cheapest and quietest first:
+--   1. the window itself, if it can be reached — focusing it makes macOS follow
+--      it to its Desktop with the ordinary switch animation;
+--   2. otherwise ACTIVATE THE OWNING APPLICATION, which does the same thing for
+--      a window macOS will not let us look up from here (D3), still without
+--      Mission Control, and then focus the exact window once we have arrived;
+--   3. only if the app has gone, `gotoSpace` — the Desktop is worth a flash.
+local function raiseWindowOnSpace(wid, space, appName)
   if not wid then return end
-  if space then pcall(hs.spaces.gotoSpace, space) end
-  -- Retried rather than timed: a window on the Space you are arriving at cannot
-  -- be looked up until the switch has finished, and how long that takes is the
-  -- animation, not a number we know. Three attempts over a second, then give up
-  -- quietly — the Desktop switch above is the part that must not fail.
-  local tries = 0
-  local function attempt()
-    tries = tries + 1
-    local w = hs.window.get(wid)
-    if w then pcall(function() w:focus() end); return end
-    if tries < 3 then raiseTimer = hs.timer.doAfter(0.35, attempt) end
+  local w = hs.window.get(wid)
+  if w then pcall(function() w:focus() end); return end
+  if appName and appName ~= "" then
+    local a = hs.application.get(appName)
+    if a then
+      pcall(function() a:activate() end)
+      local tries = 0
+      local function attempt()
+        tries = tries + 1
+        local w2 = hs.window.get(wid)
+        if w2 then pcall(function() w2:focus() end); return end
+        if tries < 3 then raiseTimer = hs.timer.doAfter(0.3, attempt) end
+      end
+      raiseTimer = hs.timer.doAfter(0.3, attempt)
+      return
+    end
   end
-  raiseTimer = hs.timer.doAfter(0.35, attempt)
+  if space then pcall(hs.spaces.gotoSpace, space) end
 end
 
 local function focusTerminalWindow(wid)
@@ -2841,8 +2865,12 @@ local function activateElement(elementId)
   if wid then focusTerminalWindow(wid); pcall(draw); return end
   -- A session running inside an editor (D85): its window is not Terminal's, so
   -- it is raised through the window itself rather than through AppleScript.
-  local awid, aspace = elementId:match("^win:(%d+):(%-?%d+)$")
-  if awid then raiseWindowOnSpace(tonumber(awid), tonumber(aspace)); pcall(draw) end
+  local ri = tonumber(elementId:match("^win:(%d+)$") or "")
+  if ri then
+    local t = raiseTargets[ri]
+    if t then raiseWindowOnSpace(t.wid, t.space, t.app) end
+    pcall(draw)
+  end
 end
 
 local function endDrag(commit)
@@ -2987,6 +3015,7 @@ draw = function()
   canvases = {}
   iconMeta = {}                  -- rebuilt below; ids are per-element and per-draw
   cycleTargets = {}              -- likewise: a session line's windows, by click id
+  raiseTargets = {}              -- and the single windows raised by D85/D86 lines
   if not M.visible then clearHover(); return end   -- ⌘⌃⌥D must take the tip with it
 
   local screens = hs.screen.allScreens()
@@ -3180,7 +3209,10 @@ draw = function()
           cycleTargets[#cycleTargets + 1] = e
           elemId = "cyc:" .. tostring(#cycleTargets)
         else
-          elemId = (e.awid and ("win:" .. tostring(e.awid) .. ":" .. tostring(e.aspace or 0)))
+          if e.awid then
+            raiseTargets[#raiseTargets + 1] = { wid = e.awid, space = e.aspace, app = e.aapp }
+          end
+          elemId = (e.awid and ("win:" .. tostring(#raiseTargets)))
                    or (e.sid and ("go:" .. tostring(e.sid)))
                    or (e.wid and ("term:" .. tostring(e.wid)) or "line")
         end

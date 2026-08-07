@@ -1331,3 +1331,32 @@ change tense to stand alone.
 - **Where:** `sessionWindows`, `noteSessionWindows`, `sessionsAtStart`, `placeHookSession`,
   `raiseWindowOnSpace`, the `win:` click id, `M.start`/`M.stop`, `saveLayout`/`restoreNames` —
   `v59`.
+
+### D86. Never open Mission Control to reach a window
+- **Decision:** raising the window a session runs in tries, in order: **focus the window**
+  itself; failing that **activate the owning application**; and only if that application has
+  gone, `hs.spaces.gotoSpace`. The Desktop lines still use `gotoSpace`, because for them there
+  is no window to go through.
+- **Why:** `hs.spaces.gotoSpace` **opens Mission Control** to do its work — the screen zooms
+  out to show every Desktop and every window, then lands. Peter, 2026-08-07, on clicking a VS
+  Code session line: *"it would show the same response I get when I do four fingers up — shows
+  the desktops as well as all of the windows on the current desktop — but it then moves to the
+  Desktop properly."* Clicking a **Terminal** session line does none of that, because it goes
+  through `activate`, and the difference between the two was immediately visible.
+- **Why activating the app works:** macOS follows an application to the Desktop of its
+  frontmost window, with the ordinary switch animation. That is what Terminal's AppleScript
+  `activate` has always done here; `hs.application:activate()` is the same thing without the
+  AppleScript, and it reaches a window that **D3** will not let us look up from another Space.
+  The exact window is then focused once we have arrived, retried three times over a second
+  because the wait is an animation rather than a number.
+- **The click ids now carry the app**, through a `raiseTargets` table rebuilt on every draw —
+  the same pattern `cycleTargets` already used, and for the same reason: a project name or an
+  app name may contain any character at all, so neither can be encoded in an element id.
+- **Also fixed by D85's persistence, and the same report:** a session line that could not be
+  placed had **no click target at all** — Peter's `T4` did nothing. That was D84's title
+  fallback with nothing to match against, because a reload empties the read cache and no
+  ⌘⌃⌥S had been pressed. Sessions captured by D85 no longer depend on a scan: the mapping is
+  restored from disk, which is exactly what was observed after this build —
+  `Desktop 6 ● ● → opendap-registry · vscode` drawn with **7 of 9 Desktops still unread**.
+- **Where:** `raiseWindowOnSpace`, `raiseTargets`, the `win:` click id, `hookSessionEntries`,
+  `screenEntries` — `v60`.

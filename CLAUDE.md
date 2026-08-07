@@ -4,7 +4,7 @@
 git state.
 **Produces:** `desktop_dashboard.lua` — a single-file tool loaded from
 `~/.hammerspoon/init.lua` — plus `claude-dashboard-state.sh`, its Claude Code hook.
-**State:** v59, working and in daily use; see `STATUS.md`.
+**State:** v60, working and in daily use; see `STATUS.md`.
 
 Context for AI coding sessions on this repo. Read this before changing
 `desktop_dashboard.lua`. `README.md` is the user-facing install/usage doc; **`DECISIONS.md`
@@ -18,7 +18,7 @@ design ruling lives there as a numbered `D##`.
 | `CLAUDE.md` (this file) | what the project is, the architecture, the layout |
 | `STATUS.md` | where things stand right now, ending in the **active thread** |
 | `LOG.md` | one line per prompt — scan this to see what has been done |
-| `DECISIONS.md` | **D1–D85** — every design ruling and the measurement behind it |
+| `DECISIONS.md` | **D1–D86** — every design ruling and the measurement behind it |
 | `TASKS.md` | the work list: numbered tasks with `Status:` lines |
 
 ## What this project is
@@ -41,7 +41,7 @@ The module returns a table `M` with a `CONFIG` block at the top and `M.start()` 
 ```
 CLAUDE.md               this file — project context, architecture, layout
 STATUS.md               where things stand + active thread
-DECISIONS.md            D1–D85 — every design ruling, with its measurement
+DECISIONS.md            D1–D86 — every design ruling, with its measurement
 TASKS.md                numbered work list with Status: lines
 LOG.md                  append-only one-line-per-prompt index
 README.md               human-facing overview, controls, config, limitations
@@ -156,7 +156,7 @@ window.
 
 ## Where the design rulings live
 
-They are **not** in this file. `DECISIONS.md` holds all 85, with the measurements intact —
+They are **not** in this file. `DECISIONS.md` holds all 86, with the measurements intact —
 the ~40 ms `hs.window.get` cost, the 750-sample dot study, the Menlo 13 glyph widths, the
 observation dates. The ones most likely to be violated by accident:
 

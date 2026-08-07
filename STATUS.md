@@ -1,7 +1,7 @@
 # STATUS.md — Desktop Dashboard
 
 Living snapshot of where this project stands. Rewritten, not appended.
-Last updated: **2026-08-07 11:45 EDT** (`cornillon-laptop`).
+Last updated: **2026-08-07 12:30 EDT** (`cornillon-laptop`).
 
 ---
 
@@ -77,7 +77,7 @@ Everything in this section was run or read, not recalled.
 - Working tree clean and level with `origin/main` before the migration began
   (`6442953`).
 
-## Decisions taken (D1–D85)
+## Decisions taken (D1–D86)
 
 D1–D64 were lifted from `CLAUDE.md` on 2026-08-03. **Eleven are new on 2026-08-04.** Written
 here: every `hs.task` carries a timeout (**D65**), a subprocess writes to a file rather than
@@ -113,7 +113,8 @@ with no window still gets a line (D81). iTerm2 is read by the same poll as Termi
 both blocking questions were measured (D82), and the hook fires on session start so a session
 exists before it is prompted (D83). A session running inside an editor is placed by the window
 that hosts it, identified by title and never named from one (D84) — or better, by the window
-it started in, which needs no title at all (D85).
+it started in, which needs no title at all (D85). Reaching that window never opens Mission
+Control (D86).
 Remote work: legend words are buttons (D68–D71), the hook raises the alert (D72–D73).
 
 ## Active thread — resume here
@@ -121,21 +122,23 @@ Remote work: legend words are buttons (D68–D71), the hook raises the alert (D7
 **`v59` is loaded and the panel is healthy** — drawing, console clean, a full ⌘⌃⌥S walk
 completing.
 
-**Two things need Peter at the keyboard, one action each:**
+**D85's capture and its persistence are confirmed.** After the `v60` reload, with **7 of 9
+Desktops still unread**, the panel drew `Desktop 6 ● ● → opendap-registry · vscode` — the
+mapping came off disk, so both the capture (when Peter started that session under `v59`) and
+the saved state work.
 
-1. **Click `T3`** (the VS Code session). It should switch to Desktop 8 and raise the VS Code
-   window. The mechanism is proven for ordinary windows — `hs.window.get` resolves Terminal,
-   Preview, MacDown and Finder from a CoreGraphics id — but **nobody has clicked the line**.
-2. **Start a new claude session in any terminal** — VS Code, Ghostty, anything — and watch it
-   land on the right Desktop **immediately**, without a ⌘⌃⌥S. That is D85's capture, and it
-   cannot be exercised on his existing session because sessions predating the load are
-   deliberately never captured.
+**One thing still needs Peter at the keyboard: click a VS Code session line.** Under `v59` it
+opened Mission Control on the way, because `hs.spaces.gotoSpace` does that; `v60` removed that
+call from the path (**D86**) in favour of activating the owning application, which is what the
+Terminal path has always done. Whether the screen now behaves like a Terminal line is his to
+say.
 
 **Where a Desktop line comes from, as of `v59`, in order of preference:**
 
 - **Its own window** — Terminal.app and iTerm2 (**D82**).
 - **The window it started in** — anything else, recorded at `SessionStart` (**D85**). No
-  titles, any terminal, and it follows the window if you move it.
+  titles, any terminal, it follows the window if you move it, and it survives a reload, so it
+  does not wait for a ⌘⌃⌥S.
 - **A window whose title names the repo** — the fallback for a session already running when
   the panel loaded (**D84**).
 - **No Desktop at all** — a `T#` line in `Sessions elsewhere` (**D81**).

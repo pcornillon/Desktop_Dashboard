@@ -498,3 +498,35 @@ at all return nil, which is why the focus is best-effort and the Desktop switch 
 
 **Not verified: the click on `T3` itself**, and the capture of a genuinely new session — both
 need Peter at the keyboard, and both are one action each.
+
+## P18 · 2026-08-07 12:05 EDT · Mission Control on click, and a line that did nothing
+
+Two reports, two different bugs, both mine.
+
+**"Four fingers up."** Clicking a VS Code session line zoomed the screen out to show every
+Desktop and every window before landing — Mission Control. A Terminal session line does
+nothing of the sort. The cause is that **`hs.spaces.gotoSpace` opens Mission Control to do its
+work**, and the Terminal path never calls it: `focusTerminalWindow` goes through AppleScript
+`activate`, and macOS follows an application to its window's Desktop with the ordinary
+animation.
+
+Fixed as **D86**: raising a window now tries the window itself, then **activates the owning
+application** — the same mechanism Terminal has always used, minus the AppleScript, and it
+reaches a window **D3** will not let us look up from another Space — and falls back to
+`gotoSpace` only if that application has gone. The exact window is focused once we arrive,
+retried three times over a second because the wait is an animation and not a number. Click ids
+now carry the app name through a `raiseTargets` table rebuilt each draw, the same pattern
+`cycleTargets` already used and for the same reason.
+
+**`T4` did nothing at all.** That was the older session, placed — or rather not placed — by
+D84's title fallback, which had nothing to match against: a reload empties the read cache and
+no ⌘⌃⌥S had been pressed since. No placement, no window, no click target.
+
+**D85's persistence is the answer, and it demonstrated itself.** After this build's reload,
+with **7 of 9 Desktops still unread**, the panel drew
+`Desktop 6 ● ● → opendap-registry · vscode` with the VS Code icon. The mapping came off disk,
+which is the first confirmation that both the capture (during `v59`, when Peter started that
+session) and the saved mapping work.
+
+Not yet verified: the click itself under `v60`. The Mission Control call is gone from the path
+it takes, but only Peter can say what the screen does.
