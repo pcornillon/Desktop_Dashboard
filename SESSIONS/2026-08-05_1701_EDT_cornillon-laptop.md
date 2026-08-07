@@ -292,7 +292,15 @@ Copied, `chmod +x`, `diff` clean. Peter's own sessions now write `term` too.
 Desktop list, and that is the ceiling for Cursor. And yes — installing iTerm here is exactly
 what would let the two open measurements be made.
 
-## P7 · 2026-08-06 18:20 EDT · iTerm installed, session started, nothing shows
+## P7 · 2026-08-06 18:05 EDT · how do I install iTerm
+
+One line: `brew install --cask iterm2`. Homebrew was already on the machine
+(`/usr/local/bin/brew`, 6.0.13) and the cask resolved to iTerm2 3.6.11, not installed —
+both checked rather than assumed. Gave the iterm2.com download as the alternative, and named
+the three things needed afterwards so the measurements could be taken: a window, on a Desktop
+he was **not** standing on, with `claude` running in it.
+
+## P8 · 2026-08-06 18:20 EDT · iTerm installed, session started, nothing shows
 
 Peter: iTerm2 installed, a window opened on another Desktop, `cd`'d to `opendap-registry`,
 `claude` started — and no session line.
