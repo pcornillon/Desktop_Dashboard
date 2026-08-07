@@ -1209,3 +1209,30 @@ change tense to stand alone.
   AppleScript dictionary, and a title naming a file and a workspace rather than the session.
 - **Where:** `CLAUDE_TITLE_SCRIPT`, `parseITermSession`, `parseClaudeTitles`,
   `M.hookSessionTerminals` — `v57`.
+
+### D83. The hook fires on session start too, with a fifth state: `idle`
+- **Decision:** `claude-dashboard-state.sh` is registered on **five** events, not four —
+  `SessionStart` writes `idle`. It draws a line with **no claude dot**: a session is here, and
+  it is not doing anything.
+- **Why:** the other four all report a *transition*, so a session that has been opened and not
+  yet prompted had written nothing at all. In Terminal or iTerm that is invisible but
+  harmless, because the poll sees the window anyway. In a terminal the poll cannot read
+  (**D81** — Ghostty, kitty, Cursor) it means the session does not exist as far as the panel
+  is concerned **until you type something**. Peter hit exactly this: he started `claude` in a
+  new iTerm window, nothing appeared, and neither mechanism was at fault — there was simply no
+  event yet.
+- **Why a new state rather than reusing `done`:** `done` means *finished and you have not
+  looked*, which earns a green dot (**D21**). A session that has never run anything has not
+  finished anything, and a green dot there would be a lie in the one place the panel is meant
+  to be trusted. `idle` earns no dot at all.
+- **Cost:** one more registration per machine, and it is the one an installer is most likely
+  to leave off — so `INSTALL.md` now says which symptom that produces. No code change was
+  needed in the hook: it already writes whatever state it is given, and `hookSessionEntries`
+  already maps `idle` to no dot.
+- **Unverified at the time of writing:** whether Claude Code's `SessionStart` payload carries
+  `session_id`. If it does not, the fallback writes `nosession-<pid>.json`, which `SessionEnd`
+  (with the real id) will not remove — a stray file that ages out in
+  `M.claudeHookMaxAgeHours`. The next session started on this machine settles it; look for a
+  file named after the session id rather than a pid.
+- **Where:** the header of `claude-dashboard-state.sh`, `global/settings.json` in
+  `claude-config`, `INSTALL.md` step 2.

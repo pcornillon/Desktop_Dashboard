@@ -18,7 +18,7 @@ design ruling lives there as a numbered `D##`.
 | `CLAUDE.md` (this file) | what the project is, the architecture, the layout |
 | `STATUS.md` | where things stand right now, ending in the **active thread** |
 | `LOG.md` | one line per prompt — scan this to see what has been done |
-| `DECISIONS.md` | **D1–D82** — every design ruling and the measurement behind it |
+| `DECISIONS.md` | **D1–D83** — every design ruling and the measurement behind it |
 | `TASKS.md` | the work list: numbered tasks with `Status:` lines |
 
 ## What this project is
@@ -41,7 +41,7 @@ The module returns a table `M` with a `CONFIG` block at the top and `M.start()` 
 ```
 CLAUDE.md               this file — project context, architecture, layout
 STATUS.md               where things stand + active thread
-DECISIONS.md            D1–D82 — every design ruling, with its measurement
+DECISIONS.md            D1–D83 — every design ruling, with its measurement
 TASKS.md                numbered work list with Status: lines
 LOG.md                  append-only one-line-per-prompt index
 README.md               human-facing overview, controls, config, limitations
@@ -152,7 +152,7 @@ window.
 
 ## Where the design rulings live
 
-They are **not** in this file. `DECISIONS.md` holds all 82, with the measurements intact —
+They are **not** in this file. `DECISIONS.md` holds all 83, with the measurements intact —
 the ~40 ms `hs.window.get` cost, the 750-sample dot study, the Menlo 13 glyph widths, the
 observation dates. The ones most likely to be violated by accident:
 

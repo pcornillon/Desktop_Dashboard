@@ -190,3 +190,10 @@ invented index is worse than a short one.
     `variable named "session.path"` IS the cwd, where Terminal's has to be parsed off a
     composed title. Photographed: `Desktop 8 ● ● → opendap-registry` with the iTerm icon, and
     `T5` in the sessions list
+- ★ **P9** `1701_cornillon-laptop` · 2026-08-06 19:05 EDT · fire the hook on session start too
+  → **D83**: a fifth registration, `SessionStart` → `idle`, so a session that has been opened
+    but not yet prompted exists on the panel — the gap Peter hit in iTerm. No claude dot: a
+    session that has never run anything has not finished anything (D21). No hook code change
+    was needed; `settings.json` in `claude-config` and `INSTALL.md` step 2 carry it. Also
+    answered how to start claude inside VS Code, which lands as a `· vscode` line under
+    D81 — no Desktop, because VS Code is Electron

@@ -343,3 +343,28 @@ Desktop.
 **Verified by photographing the panel:** `Desktop 8 ● ● → opendap-registry` with the iTerm
 icon, in the session colour, plus `T5 ● ● opendap-registry` in the sessions list. `v56` →
 `v57`.
+
+## P9 · 2026-08-06 19:05 EDT · fire on session start; and claude inside VS Code
+
+**D83 — a fifth hook registration.** `SessionStart` → `idle`, closing the gap from P8: the
+other four events all report a *transition*, so a session opened and not yet prompted had
+written nothing. In Terminal or iTerm that is invisible but harmless, since the poll sees the
+window; in a terminal the poll cannot read it means the session does not exist on the panel
+until you type. **No hook code change was needed** — it already writes whatever state it is
+given, and `hookSessionEntries` already maps `idle` to no dot. `idle` rather than reusing
+`done` on purpose: `done` earns a green dot meaning *finished and unseen* (D21), and a session
+that has never run anything has not finished anything.
+
+Edited `claude-config/global/settings.json` **surgically** — one hook appended to the existing
+`SessionStart` array, backed up first, and the change confirmed by diffing normalised JSON
+before and after: exactly one object added, nothing else touched. `INSTALL.md` step 2 now says
+five events and names the symptom of leaving this one off. Verified the hook writes
+`{"state":"idle",…,"term":"ghostty",…}` in a sandboxed `HOME` with `jq` off the PATH.
+
+**Left open and written into STATUS:** whether Claude Code's `SessionStart` payload carries
+`session_id`. If not, the fallback writes `nosession-<pid>.json`, which `SessionEnd` will not
+remove. The next session started on this machine settles it.
+
+**VS Code:** answered — open the folder, `⌃\`` for the integrated terminal, `claude`. It shows
+as a `· vscode` line under D81 with **no Desktop**, because VS Code is Electron and D82's two
+measurements are exactly what it cannot pass.

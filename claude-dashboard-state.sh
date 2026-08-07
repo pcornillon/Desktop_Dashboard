@@ -2,10 +2,18 @@
 # claude-dashboard-state.sh — records this session's state for Desktop Dashboard.
 #
 # Usage (from ~/.claude/settings.json hooks):  claude-dashboard-state.sh <state>
+#   idle      SessionStart     — a session exists here and has not been asked anything
 #   working   UserPromptSubmit — you sent a prompt, Claude is now busy
 #   waiting   Notification     — Claude wants your attention (permission/question)
 #   done      Stop             — the response finished
 #   gone      SessionEnd       — session over, drop its file
+#
+# `idle` is the newest of the five and the only one that reports NOTHING happening
+# (D83). Without it a session that has been opened but not yet prompted writes no
+# file at all, and in a terminal the panel's poll cannot read — Ghostty, kitty,
+# Cursor — it is invisible until you type something. It draws a line with no
+# claude dot, which is exactly right: a session is there, and it is not doing
+# anything.
 #
 # Writes one small JSON file per session to a MACHINE-LOCAL directory:
 #   ~/.hammerspoon/claude_state/<session_id>.json

@@ -119,7 +119,7 @@ exactly the same thing in its terminal title as one that has finished.
    chmod +x ~/.claude/claude-dashboard-state.sh
    ```
 
-2. Register it on four events in `~/.claude/settings.json`. **Merge — never replace this
+2. Register it on five events in `~/.claude/settings.json`. **Merge — never replace this
    file.** It holds your permissions and any hooks you already run; appending to an existing
    event's `hooks` array is the whole job. Back it up first. (`~/.claude/settings.json` is
    often a symlink to somewhere like Dropbox, in which case your edit syncs to your other
@@ -135,14 +135,21 @@ exactly the same thing in its terminal title as one that has finished.
        "Stop":             [{ "hooks": [{ "type": "command", "async": true, "timeout": 5,
          "command": "bash \"$HOME/.claude/claude-dashboard-state.sh\" done" }] }],
        "SessionEnd":       [{ "hooks": [{ "type": "command", "async": true, "timeout": 5,
-         "command": "bash \"$HOME/.claude/claude-dashboard-state.sh\" gone" }] }]
+         "command": "bash \"$HOME/.claude/claude-dashboard-state.sh\" gone" }] }],
+       "SessionStart":     [{ "hooks": [{ "type": "command", "async": true, "timeout": 5,
+         "command": "bash \"$HOME/.claude/claude-dashboard-state.sh\" idle" }] }]
      }
    }
    ```
 
+   **`SessionStart` is the one people leave off, and it is the one that makes a session
+   visible before you have typed anything.** Without it, a session you have just opened has
+   written nothing, so in a terminal the panel cannot read directly — Ghostty, kitty,
+   Cursor — it appears nowhere until your first prompt.
+
 3. Check it: `ls ~/.hammerspoon/claude_state/` should show one JSON file per live session
-   shortly after you next prompt a session. If nothing appears, open `/hooks` in Claude
-   Code once (that reloads the config) or restart the session.
+   as soon as the session starts. If nothing appears, open `/hooks` in Claude Code once
+   (that reloads the config) or restart the session.
 
 The script writes only to `~/.hammerspoon/claude_state/`, exits 0 unconditionally, and
 does nothing at all on a machine with no `~/.hammerspoon` — so it is safe to sync these

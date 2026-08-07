@@ -1,7 +1,7 @@
 # STATUS.md — Desktop Dashboard
 
 Living snapshot of where this project stands. Rewritten, not appended.
-Last updated: **2026-08-06 18:45 EDT** (`cornillon-laptop`).
+Last updated: **2026-08-06 19:20 EDT** (`cornillon-laptop`).
 
 ---
 
@@ -77,7 +77,7 @@ Everything in this section was run or read, not recalled.
 - Working tree clean and level with `origin/main` before the migration began
   (`6442953`).
 
-## Decisions taken (D1–D82)
+## Decisions taken (D1–D83)
 
 D1–D64 were lifted from `CLAUDE.md` on 2026-08-03. **Eleven are new on 2026-08-04.** Written
 here: every `hs.task` carries a timeout (**D65**), a subprocess writes to a file rather than
@@ -110,7 +110,8 @@ Portability: no synced folder, no polling (D77); the code's own install steps mu
 contradict INSTALL.md (D78). TeXShop measured at 0.1 ms and let into docApps, closing D32's
 five-day-old live tension (D79). The hook carries no external dependency (D80), and a session
 with no window still gets a line (D81). iTerm2 is read by the same poll as Terminal, after
-both blocking questions were measured (D82).
+both blocking questions were measured (D82), and the hook fires on session start so a session
+exists before it is prompted (D83).
 Remote work: legend words are buttons (D68–D71), the hook raises the alert (D72–D73).
 
 ## Active thread — resume here
@@ -132,13 +133,14 @@ now either solved or answered with a measurement.
 `M.hookSessionTerminals` and read by the poll. That is the procedure; it is not a matter of
 adding a name to a list.
 
-**One gap, deliberately left, and worth deciding on:** the hook fires on `UserPromptSubmit`,
-`Notification`, `Stop` and `SessionEnd` — **not on session start**. So a session that has been
-opened but not yet prompted writes no state file and, in a terminal the poll cannot read,
-appears nowhere. That is exactly what Peter hit when he first started `claude` in iTerm.
-Registering the hook on `SessionStart` as well, writing an `idle` state, would close it — one
-more line in `settings.json` for every machine, and `hookSessionEntries` already draws `idle`
-with no claude dot.
+**That gap is closed (D83):** the hook is registered on a **fifth** event, `SessionStart`,
+writing a new `idle` state — a line with no claude dot, because a session that has never run
+anything has not finished anything either. Added to `claude-config/global/settings.json` here
+and documented in `INSTALL.md` step 2, which now also names the symptom of leaving it off.
+**One thing to confirm on the next session started on this machine:** whether Claude Code's
+`SessionStart` payload carries `session_id`. If it does not, the hook falls back to
+`nosession-<pid>.json`, which `SessionEnd` will not clean up — look in
+`~/.hammerspoon/claude_state/` for a file named after a pid rather than a session id.
 
 **Still never exercised:** click-to-cycle on a session line; ⌘⌃⌥g and its pull through the
 rewritten `runTask`; the clickable legend words alongside the per-project Desktop lines.
