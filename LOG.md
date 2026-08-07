@@ -262,3 +262,13 @@ invented index is worse than a short one.
     wrong** and is corrected in place: Peter's own test — clicking a plain Desktop line, which
     calls `gotoSpace` and nothing else, *"simply moves"* — shows the Mission Control zoom came
     from reaching across Spaces for a window, not from `gotoSpace`
+- ★ **P20** `1701_cornillon-laptop` · 2026-08-07 13:15 EDT · the click works — and a
+  long-standing sporadic bug named at last
+  → **v62**, **D88**, Task **#17**. Peter: *"some of the time, when I click on a Desktop, it
+    actually goes to another one."* **Measured it instead of guessing: two of eight
+    `hs.spaces.gotoSpace` calls landed on the wrong Desktop**, both at the start of a burst,
+    and the same call worked when repeated — which is what he had been doing by hand for
+    weeks. Every click that changes Desktop now verifies against `activeSpaceOnScreen` and
+    repeats up to twice. Re-ran the sequence after the change: five for five, first time. The
+    ⌘⌃⌥S walk still uses the raw call and is Task #17, because its restore chain is tuned
+    around an animation and deserves its own measurement

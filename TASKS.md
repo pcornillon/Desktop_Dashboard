@@ -542,3 +542,24 @@ guessing.
 
 **Verified live and photographed:** `Desktop 8 ● ● → opendap-registry · vscode` in the session
 colour with the VS Code icon, while `T3` listed the same session. `v57` → **`v58`**.
+
+
+## Task #17 — Route the ⌘⌃⌥S walk's Desktop restoration through the verified switch
+
+**Status:** todo
+
+**D88** established that `hs.spaces.gotoSpace` fails silently — two of eight measured switches
+landed on the wrong Desktop — and put every *click* through a verify-and-retry. The ⌘⌃⌥S walk
+still calls `gotoSpace` raw, both to visit each Desktop and to restore the ones that were
+active when it started.
+
+That restoration already carries a workaround for something that looks like the same fault:
+*"Firing every gotoSpace in a tight loop leaves macOS mid-animation on the first switch, and
+the second one swallows it — which restored the built-in display but left the iMac parked on
+the last Desktop the walk visited."* It was fixed by restoring one display at a time with a
+dwell. **D88 suggests the real cause was the silent failure, not the timing.**
+
+Deliberately not changed with D88: the walk's chain is tuned around an animation that must not
+be interrupted, and a retry inside it could fight the dwell. Doing this means measuring the
+walk the way D88 measured the click — record what was asked and what was actually reached, per
+step, over several runs — before changing anything.

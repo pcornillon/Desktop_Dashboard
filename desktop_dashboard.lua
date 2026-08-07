@@ -75,7 +75,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v61 (hs.application.get('Code') is Xcode — find the app by exact name, 2026-08-07)"
+M.version = "v62 (gotoSpace fails silently — every Desktop switch is now verified, 2026-08-07)"
 
 -- ============================ CONFIG ============================
 
@@ -2783,6 +2783,43 @@ local function appByExactName(name)
   return nil
 end
 
+-- Switch to a Desktop, and CHECK THAT IT HAPPENED (D88).
+--
+-- `hs.spaces.gotoSpace` fails silently. Measured 2026-08-07, eight switches in
+-- a jumpy order: **two landed on the wrong Desktop**, both at the start of the
+-- burst, and a repeat of the same call worked. That is exactly the complaint —
+-- *"some of the time, when I click on a Desktop, it actually goes to another
+-- one. If I click again, it goes to the proper one."*
+--
+-- So every switch is verified against `activeSpaceOnScreen` and repeated up to
+-- twice. The check is cheap and the retry is the same call the user would have
+-- made by hand.
+local gotoTimer
+local function gotoSpaceVerified(space)
+  if not space then return end
+  pcall(hs.spaces.gotoSpace, space)
+  -- Which screen owns it, so the right one is interrogated on a two-display Mac.
+  local owner
+  for _, scr in ipairs(hs.screen.allScreens()) do
+    for _, s in ipairs(safeSpacesForScreen(scr)) do
+      if s == space then owner = scr; break end
+    end
+    if owner then break end
+  end
+  if not owner then return end
+  local tries = 0
+  local function check()
+    tries = tries + 1
+    local now = safeActiveSpace(owner)
+    if now == space then return end
+    if tries <= 2 then
+      pcall(hs.spaces.gotoSpace, space)
+      gotoTimer = hs.timer.doAfter(0.45, check)
+    end
+  end
+  gotoTimer = hs.timer.doAfter(0.45, check)
+end
+
 local function raiseWindowOnSpace(wid, space, appName)
   if not wid then return end
   local w = hs.window.get(wid)
@@ -2802,14 +2839,14 @@ local function raiseWindowOnSpace(wid, space, appName)
           -- Activating the app did not bring us to its Desktop — a window
           -- minimised, or on a display we are not looking at. Switch anyway:
           -- landing on the right Desktop is the part that must not fail.
-          pcall(hs.spaces.gotoSpace, space)
+          gotoSpaceVerified(space)
         end
       end
       raiseTimer = hs.timer.doAfter(0.3, attempt)
       return
     end
   end
-  if space then pcall(hs.spaces.gotoSpace, space) end
+  if space then gotoSpaceVerified(space) end
 end
 
 local function focusTerminalWindow(wid)
@@ -2885,7 +2922,7 @@ local function activateElement(elementId)
     return
   end
   local sid = tonumber(elementId:match("^go:(%-?%d+)$") or "")
-  if sid then pcall(hs.spaces.gotoSpace, sid); return end
+  if sid then gotoSpaceVerified(sid); return end
   local wid = tonumber(elementId:match("^term:(%d+)$") or "")
   if wid then focusTerminalWindow(wid); pcall(draw); return end
   -- A session running inside an editor (D85): its window is not Terminal's, so
@@ -3899,6 +3936,7 @@ function M.stop()
   if remoteWatcher then pcall(function() remoteWatcher:stop() end); remoteWatcher = nil end
   if sessionWatcher then pcall(function() sessionWatcher:stop() end); sessionWatcher = nil end
   if raiseTimer then raiseTimer:stop(); raiseTimer = nil end
+  if gotoTimer  then gotoTimer:stop();  gotoTimer  = nil end
   if ghTask        then pcall(function() ghTask:terminate() end); ghTask = nil end
   if ghWebview     then pcall(function() ghWebview:delete() end); ghWebview = nil end
   if autosaveTimer then autosaveTimer:stop() end

@@ -1,7 +1,7 @@
 # STATUS.md — Desktop Dashboard
 
 Living snapshot of where this project stands. Rewritten, not appended.
-Last updated: **2026-08-07 13:05 EDT** (`cornillon-laptop`).
+Last updated: **2026-08-07 13:40 EDT** (`cornillon-laptop`).
 
 ---
 
@@ -77,7 +77,7 @@ Everything in this section was run or read, not recalled.
 - Working tree clean and level with `origin/main` before the migration began
   (`6442953`).
 
-## Decisions taken (D1–D87)
+## Decisions taken (D1–D88)
 
 D1–D64 were lifted from `CLAUDE.md` on 2026-08-03. **Eleven are new on 2026-08-04.** Written
 here: every `hs.task` carries a timeout (**D65**), a subprocess writes to a file rather than
@@ -128,11 +128,16 @@ Desktops still unread**, the panel drew `Desktop 6 ● ● → opendap-registry 
 mapping came off disk, so both the capture (when Peter started that session under `v59`) and
 the saved state work.
 
-**One thing still needs Peter at the keyboard: click a VS Code session line.** Under `v59` it
-opened Mission Control on the way, because `hs.spaces.gotoSpace` does that; `v60` removed that
-call from the path (**D86**) in favour of activating the owning application, which is what the
-Terminal path has always done. Whether the screen now behaves like a Terminal line is his to
-say.
+**Clicking a VS Code session line works** — confirmed 2026-08-07 after three attempts at it
+(`v60` activated Xcode, because `hs.application.get("Code")` returns Xcode; `v61` fixed the
+lookup).
+
+**A long-standing sporadic bug was found and fixed in the same exchange.** Peter had been
+unable to reproduce "sometimes clicking a Desktop goes to a different one". It took one
+measurement: **two of eight `hs.spaces.gotoSpace` calls land on the wrong Desktop**, both at
+the start of a burst, and repeating the call works. Every click that changes Desktop is now
+verified and retried (**D88**, `v62`). **The ⌘⌃⌥S walk still uses the raw call** — Task #17,
+because its restore chain is tuned around an animation and needs its own measurement first.
 
 **Where a Desktop line comes from, as of `v59`, in order of preference:**
 

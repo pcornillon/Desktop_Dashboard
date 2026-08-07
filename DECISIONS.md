@@ -1386,3 +1386,40 @@ change tense to stand alone.
   Desktop within three tries, `gotoSpace` is called anyway. Landing on the right Desktop is
   the part that must not fail; raising the exact window is a nicety.
 - **Where:** `appByExactName`, `raiseWindowOnSpace` — `v61`.
+
+### D88. Every Desktop switch is verified, because `gotoSpace` fails silently
+- **Decision:** clicking anything that changes Desktop goes through `gotoSpaceVerified`, which
+  calls `hs.spaces.gotoSpace`, checks `activeSpaceOnScreen` 0.45 s later, and **repeats the
+  call up to twice** if it did not land. The screen that owns the target Space is looked up
+  first, so the right display is interrogated on a two-display Mac.
+- **The measurement, 2026-08-07.** Eight switches in a deliberately jumpy order, each verified
+  by reading back the active Space:
+
+  ```
+  asked 6    got 12   *** WRONG ***
+  asked 295  got 12   *** WRONG ***
+  asked 9    got 9    ok
+  asked 205  got 205  ok
+  asked 7    got 7    ok
+  asked 145  got 145  ok
+  asked 6    got 6    ok
+  asked 12   got 12   ok
+  ```
+
+  **Two of eight landed on the wrong Desktop**, both at the start of the burst, and the same
+  call worked when repeated. Peter had been living with this for weeks without being able to
+  reproduce it: *"some of the time, when I click on a Desktop, it actually goes to another
+  one. If I click again, it goes to the proper one but the behavior is sporadic."* The retry
+  is precisely what he was doing by hand.
+- **Why a retry rather than a longer wait:** the failures are not slow switches. The read
+  after 0.9 s in the measurement above showed the machine sitting on a *different* Desktop
+  entirely, not in transit to the right one. Waiting longer would have changed nothing.
+- **Why the click path and not the ⌘⌃⌥S walk:** the walk restores Desktops through its own
+  staggered chain, tuned for an animation that must not be interrupted, and it is not what
+  Peter reported. Routing it through this too is Task **#17**, deliberately separate.
+- **Verified after the change:** the same jumpy sequence, five switches, all landing first
+  time — which shows the verification costs nothing when the switch works. It does **not**
+  demonstrate the retry firing, because no failure occurred in that run; the retry is the same
+  repeat call that was measured to work above.
+- **Where:** `gotoSpaceVerified`, the `go:` click handler, `raiseWindowOnSpace`'s fallbacks —
+  `v62`.

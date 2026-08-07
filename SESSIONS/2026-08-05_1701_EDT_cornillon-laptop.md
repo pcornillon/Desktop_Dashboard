@@ -560,3 +560,38 @@ screen; switching Spaces does not.*
 
 Verified after the fix: `appByExactName("Code")` resolves to `com.microsoft.VSCode`. The click
 itself still needs Peter.
+
+## P20 · 2026-08-07 13:15 EDT · the click works; and a bug he could never reproduce
+
+Peter: clicking a VS Code session line now behaves. Then: *"there is another bug that has been
+plaguing me for a while but I have had trouble reproducing it. Some of the time, when I click
+on a Desktop, it actually goes to another one. If I click again, it goes to the proper one but
+the behavior is sporadic."*
+
+**Measured rather than guessed, and it reproduced on the first attempt.** Eight switches in a
+jumpy order, each verified by reading the active Space back:
+
+```
+asked 6    got 12   *** WRONG ***
+asked 295  got 12   *** WRONG ***
+asked 9    got 9    ok      (and five more ok)
+```
+
+**`hs.spaces.gotoSpace` fails silently, two times in eight**, both at the start of the burst.
+The read 0.9 s later showed the machine sitting on a *different* Desktop entirely rather than
+in transit, so a longer wait would have changed nothing — which is why the fix is a **retry**,
+not a delay. That retry is exactly what Peter had been doing by hand.
+
+Every click that changes Desktop now goes through `gotoSpaceVerified`: switch, read back
+`activeSpaceOnScreen` after 0.45 s, repeat up to twice. The screen owning the target Space is
+looked up first, so the right display is interrogated on a two-display Mac (**D88**, `v62`).
+
+Re-ran the same sequence after the change: **five for five, first time**. That shows the
+verification costs nothing when the switch works; it does not demonstrate the retry firing,
+since nothing failed in that run, and the session log should not claim more than it saw.
+
+**Left alone deliberately:** the ⌘⌃⌥S walk, which still calls `gotoSpace` raw. Its restore
+chain already carries a workaround for what looks like the same fault — restoring one display
+at a time with a dwell, after the iMac was once left parked on the last Desktop visited — and
+**D88 suggests the real cause there was the silent failure rather than the timing**. That is
+Task **#17**, to be measured the same way before anything is changed.
