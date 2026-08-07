@@ -75,7 +75,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v62 (gotoSpace fails silently — every Desktop switch is now verified, 2026-08-07)"
+M.version = "v63 (the ⌘⌃⌥S walk waits until it is actually on the Desktop it is reading, 2026-08-07)"
 
 -- ============================ CONFIG ============================
 
@@ -3577,6 +3577,9 @@ end
 -- Walk every Desktop once, reading each as it becomes active.
 function M.scanAll()
   scanningAll = true
+  -- D89: how often the walk had to ask twice. Printed at the end, so the fault
+  -- D88 measured stays visible in normal use instead of needing a special run.
+  M.walkStats = { steps = 0, retries = 0, failed = 0 }
   loadRepos()                    -- an explicit ⌘⌃⌥S always re-reads the repo list
   local start = {}
   for _, s in ipairs(hs.screen.allScreens()) do start[s] = safeActiveSpace(s) end
@@ -3585,7 +3588,8 @@ function M.scanAll()
   local queue = {}
   for _, s in ipairs(hs.screen.allScreens()) do
     for i, sid in ipairs(safeSpacesForScreen(s)) do
-      queue[#queue + 1] = { sid = sid, name = string.format("%s Desktop %d", s:name() or "Screen", i) }
+      queue[#queue + 1] = { sid = sid, scr = s,
+                            name = string.format("%s Desktop %d", s:name() or "Screen", i) }
     end
   end
   local k = 0
@@ -3611,10 +3615,16 @@ function M.scanAll()
         if ri > #restores then
           scanTimer = hs.timer.doAfter(0.35, function()
             scanningAll = false; M.status = nil; pcall(scanActive); draw()
+            local st = M.walkStats or {}
+            if (st.retries or 0) > 0 or (st.failed or 0) > 0 then
+              print(string.format(
+                "desktop_dashboard: walk of %d Desktops needed %d retry/retries, %d unread (D88)",
+                st.steps or 0, st.retries or 0, st.failed or 0))
+            end
           end)
           return
         end
-        pcall(hs.spaces.gotoSpace, restores[ri])
+        gotoSpaceVerified(restores[ri])
         scanTimer = hs.timer.doAfter(M.restoreDwell or 0.5, restoreNext)
       end
       restoreNext()
@@ -3624,17 +3634,44 @@ function M.scanAll()
     M.status = string.format("Reading %s (%d/%d)…", item.name, k, #queue)
     draw()
     pcall(hs.spaces.gotoSpace, item.sid)
-    -- step() MUST run even if reading this Desktop blows up. Without the pcall
-    -- one failed read killed the timer callback, and the walk simply stopped
-    -- wherever it happened to be — the reported "it stops on Retina #9".
-    scanTimer = hs.timer.doAfter(M.scanDwell, function()
+    -- CHECK THAT THE SWITCH HAPPENED BEFORE READING (D89). `gotoSpace` fails
+    -- silently (D88), and here that is not cosmetic: the AX snapshot only
+    -- contains the CURRENT Space's windows, so reading while parked on the
+    -- wrong Desktop labels this one from the other one's windows — usually as
+    -- empty. A wrong name is worse than a slow walk, so the read waits for the
+    -- Desktop it asked for, retrying twice, and gives up rather than lying.
+    local tries = 0
+    local function readWhenThere()
+      tries = tries + 1
+      M.walkStats.steps = M.walkStats.steps + (tries == 1 and 1 or 0)
+      local now = safeActiveSpace(item.scr)
+      if now ~= nil and now ~= item.sid and tries <= 3 then
+        M.walkStats.retries = M.walkStats.retries + 1
+        pcall(hs.spaces.gotoSpace, item.sid)
+        scanTimer = hs.timer.doAfter(M.scanDwell, readWhenThere)
+        return
+      end
+      if now ~= nil and now ~= item.sid then
+        -- Three attempts and still elsewhere. Skip the read: the previous label
+        -- for this Desktop is stale, and a stale name beats one copied off the
+        -- Desktop we are actually standing on.
+        M.walkStats.failed = M.walkStats.failed + 1
+        print(string.format("desktop_dashboard: %s not reached after 3 tries; left unread",
+                            item.name))
+        step()
+        return
+      end
+      -- step() MUST run even if reading this Desktop blows up. Without the pcall
+      -- one failed read killed the timer callback, and the walk simply stopped
+      -- wherever it happened to be — the reported "it stops on Retina #9".
       pcall(function()
         local byId, byCg = snapshot()
         labelSpace(byId, item.sid, byCg)
         draw()
       end)
       step()
-    end)
+    end
+    scanTimer = hs.timer.doAfter(M.scanDwell, readWhenThere)
   end
   step()
 end

@@ -595,3 +595,34 @@ chain already carries a workaround for what looks like the same fault — restor
 at a time with a dwell, after the iMac was once left parked on the last Desktop visited — and
 **D88 suggests the real cause there was the silent failure rather than the timing**. That is
 Task **#17**, to be measured the same way before anything is changed.
+
+## P21 · 2026-08-07 13:55 EDT · Task #17 — measure the walk, then decide
+
+**The measurement came back clean, and the write-up says so.** Two full walks after
+instrumenting: **9 steps, 0 retries, 0 unread**, and **7+ steps, 0 retries, 0 unread**. D88's
+two-in-eight failure rate was measured on rapid back-to-back switches with nothing between
+them; the walk does a full window snapshot at every step, which may be exactly the settling
+time the rapid case lacked.
+
+**The protection went in anyway (D89, `v63`)** and the reasoning is worth keeping straight: the
+call is *known* to fail silently, and the consequence in the walk is worse than on a click.
+`hs.window.allWindows()` only contains the current Space's windows (D3), so a step that reads
+while parked on the wrong Desktop labels the Desktop it asked for using the windows of the one
+it is standing on — usually as empty. The failure path therefore **skips the read**: a stale
+name beats a name copied off another Desktop.
+
+Also routed the restore chain through `gotoSpaceVerified`, and added a console line for any
+walk that needed a retry or left a Desktop unread — so the next occurrence is not invisible,
+which is what made this class of bug take weeks to surface in the first place.
+
+**Circumstantial evidence that it has bitten here before**, now recorded in D89: the restore
+chain already carried a workaround written long before any of this was understood — *"Firing
+every gotoSpace in a tight loop leaves macOS mid-animation on the first switch, and the second
+one swallows it — which restored the built-in display but left the iMac parked on the last
+Desktop the walk visited."* That is D88's fault described from the outside, and the dwell that
+"fixed" it is still there with the verification now behind it.
+
+**Two false alarms of my own during this, both the same mistake as before**: the walk looked
+wedged at "Desktop 1 (1/9), steps=0" because I was polling faster than a single 0.6 s dwell.
+`hs -c` round trips are quicker than the thing being measured, and that has now fooled me
+three times in this session — worth remembering the next time a walk looks stuck.

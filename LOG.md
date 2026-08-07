@@ -272,3 +272,12 @@ invented index is worse than a short one.
     repeats up to twice. Re-ran the sequence after the change: five for five, first time. The
     ⌘⌃⌥S walk still uses the raw call and is Task #17, because its restore chain is tuned
     around an animation and deserves its own measurement
+- ★ **P21** `1701_cornillon-laptop` · 2026-08-07 13:55 EDT · Task #17 — measure the walk, then
+  protect it
+  → **v63**, **D89**. Each step of the ⌘⌃⌥S walk now confirms it is on the Desktop it is about
+    to read, retries three times, and **skips the read rather than labelling a Desktop from
+    another one's windows** — the AX snapshot is current-Space only (D3), so a silent switch
+    failure there is a wrong NAME, not a wrong click. **Measured as asked and the fault did not
+    appear**: two instrumented walks, 9 and 7+ steps, zero retries, zero unread. Protection
+    kept anyway, with a console line on any future occurrence. The restore chain's old
+    "mid-animation" workaround reads, in hindsight, like D88 described from the outside

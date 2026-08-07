@@ -1,7 +1,7 @@
 # STATUS.md — Desktop Dashboard
 
 Living snapshot of where this project stands. Rewritten, not appended.
-Last updated: **2026-08-07 13:40 EDT** (`cornillon-laptop`).
+Last updated: **2026-08-07 14:15 EDT** (`cornillon-laptop`).
 
 ---
 
@@ -77,7 +77,7 @@ Everything in this section was run or read, not recalled.
 - Working tree clean and level with `origin/main` before the migration began
   (`6442953`).
 
-## Decisions taken (D1–D88)
+## Decisions taken (D1–D89)
 
 D1–D64 were lifted from `CLAUDE.md` on 2026-08-03. **Eleven are new on 2026-08-04.** Written
 here: every `hs.task` carries a timeout (**D65**), a subprocess writes to a file rather than
@@ -136,8 +136,11 @@ lookup).
 unable to reproduce "sometimes clicking a Desktop goes to a different one". It took one
 measurement: **two of eight `hs.spaces.gotoSpace` calls land on the wrong Desktop**, both at
 the start of a burst, and repeating the call works. Every click that changes Desktop is now
-verified and retried (**D88**, `v62`). **The ⌘⌃⌥S walk still uses the raw call** — Task #17,
-because its restore chain is tuned around an animation and needs its own measurement first.
+verified and retried (**D88**, `v62`). **The ⌘⌃⌥S walk is covered too** (**D89**, Task #17): every step now confirms it is on the
+Desktop it is about to read, and skips the read rather than labelling a Desktop from another
+one's windows. Measured as asked — two instrumented walks, **zero retries** — so that is
+protection against a known fault rather than a fix for an observed one, and any occurrence now
+prints a console line.
 
 **Where a Desktop line comes from, as of `v59`, in order of preference:**
 

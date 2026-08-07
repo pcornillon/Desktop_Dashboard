@@ -1423,3 +1423,31 @@ change tense to stand alone.
   repeat call that was measured to work above.
 - **Where:** `gotoSpaceVerified`, the `go:` click handler, `raiseWindowOnSpace`'s fallbacks —
   `v62`.
+
+### D89. The ⌘⌃⌥S walk waits until it is actually on the Desktop it is reading
+- **Decision:** each step of the walk checks `activeSpaceOnScreen` before reading, retries the
+  switch up to three times, and **skips the read entirely** rather than reading the wrong
+  Desktop. The restore chain at the end goes through `gotoSpaceVerified` (**D88**). A walk that
+  needed a retry, or left a Desktop unread, prints one line to the console.
+- **Why it matters more here than on a click:** a click that lands wrong is an annoyance you
+  correct with a second click. A *read* that happens while parked on the wrong Desktop is
+  silent and lasting: `hs.window.allWindows()` only contains the **current** Space's windows
+  (**D3**), so the panel would label the Desktop it asked for using the windows of the one it
+  is standing on — usually as empty. **A stale name beats a name copied off another Desktop**,
+  which is why the failure path skips the read instead of guessing.
+- **Measured, and the honest result is that the fault did not appear here.** Two full walks
+  after the change, instrumented: **9 steps, 0 retries, 0 unread**, and **7+ steps, 0 retries,
+  0 unread**. D88's 2-in-8 failure rate was measured on rapid back-to-back switches with no
+  work between them; the walk does a full window snapshot at every step, which may be exactly
+  the settling time the rapid case lacked. **So this is protection against a fault that is
+  known to exist in the call, not a fix for one observed in this path** — and the console line
+  is there so the next occurrence is not invisible.
+- **The circumstantial case that it HAS bitten here**: the restore chain already carried a
+  workaround written before any of this was understood — *"Firing every gotoSpace in a tight
+  loop leaves macOS mid-animation on the first switch, and the second one swallows it — which
+  restored the built-in display but left the iMac parked on the last Desktop the walk
+  visited."* That is D88's fault described from the outside. The dwell that "fixed" it is still
+  there; the verification now sits behind it.
+- **Cost:** one `activeSpaceOnScreen` per Desktop, against a full AX window snapshot in the
+  same step. Unmeasurable.
+- **Where:** `M.scanAll`'s `readWhenThere`, its restore chain, `M.walkStats` — `v63`.

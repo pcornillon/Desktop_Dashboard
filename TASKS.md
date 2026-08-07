@@ -546,7 +546,13 @@ colour with the VS Code icon, while `T3` listed the same session. `v57` → **`v
 
 ## Task #17 — Route the ⌘⌃⌥S walk's Desktop restoration through the verified switch
 
-**Status:** todo
+**Status:** done (2026-08-07) — **D89**, `v63`, and it went further than the title: each step
+now verifies before it *reads*, not just on the restore, because a read taken while parked on
+the wrong Desktop mislabels the Desktop it asked for. **Measured as asked, and the fault did
+not appear in this path**: two instrumented walks, 9 steps and 7+ steps, zero retries and zero
+unread. The protection went in anyway — the call is known to fail (**D88**), the consequence
+here is a wrong name rather than a wrong click, and a console line now reports any occurrence
+instead of it being invisible. The original write-up follows.
 
 **D88** established that `hs.spaces.gotoSpace` fails silently — two of eight measured switches
 landed on the wrong Desktop — and put every *click* through a verify-and-retry. The ⌘⌃⌥S walk
