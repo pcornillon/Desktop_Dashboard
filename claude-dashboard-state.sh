@@ -21,8 +21,111 @@
 #
 # Never fails the hook: every step is guarded and the script always exits 0.
 # A hook that errors would interrupt the session it is meant to observe.
+#
+# NO EXTERNAL TOOLS. This used to parse and emit JSON with `jq`, which macOS does
+# not ship: every call was guarded with `command -v jq`, so on a machine without
+# it the hook wrote NO state file and still exited 0 — the red dot simply never
+# lit, with no error anywhere to explain why. That is exactly the machine this
+# runs on first, a colleague's fresh Mac. It now uses only `awk` and bash's own
+# string operators, both always present (D80).
 
 set -u
+
+# ---- JSON, without jq ------------------------------------------------------
+
+# Value of a TOP-LEVEL string field, from JSON on stdin. Nested objects are
+# skipped by depth, so a `.cwd` inside some sub-object cannot be mistaken for
+# the real one.
+#
+# `\uXXXX` is decoded to real UTF-8, surrogate pairs included. Claude Code's own
+# payloads do not use it — JavaScript's JSON.stringify emits non-ASCII raw — but
+# the first version of this returned "?" for every escaped character, which is a
+# silent corruption of a path, and awk emits raw bytes from a decimal `%c`
+# (verified: 226,156,179 -> ✳), so decoding it properly costs nothing.
+json_get() {
+  awk -v want="$1" '
+    function utf8(cp) {
+      if (cp < 128)   return sprintf("%c", cp)
+      if (cp < 2048)  return sprintf("%c%c", 192 + int(cp/64), 128 + cp%64)
+      if (cp < 65536) return sprintf("%c%c%c", 224 + int(cp/4096), \
+                                     128 + int(cp/64)%64, 128 + cp%64)
+      return sprintf("%c%c%c%c", 240 + int(cp/262144), 128 + int(cp/4096)%64, \
+                                 128 + int(cp/64)%64, 128 + cp%64)
+    }
+    function hexval(h,   k, d, v) {
+      v = 0
+      for (k = 1; k <= length(h); k++) {
+        d = index("0123456789abcdef", tolower(substr(h, k, 1))) - 1
+        if (d < 0) return -1
+        v = v * 16 + d
+      }
+      return v
+    }
+    { doc = doc $0 "\n" }
+    END {
+      n = length(doc); i = 1; depth = 0; lastkey = ""
+      while (i <= n) {
+        c = substr(doc, i, 1)
+        if (c == "\"") {
+          i++; val = ""
+          while (i <= n) {
+            c = substr(doc, i, 1)
+            if (c == "\\") {
+              e = substr(doc, i + 1, 1)
+              if (e == "u") {
+                cp = hexval(substr(doc, i + 2, 4)); i += 6
+                # A character outside the BMP arrives as a surrogate PAIR; the
+                # halves are meaningless alone, so they are joined here or the
+                # emoji becomes two invalid code points.
+                if (cp >= 55296 && cp <= 56319 && substr(doc, i, 2) == "\\u") {
+                  lo = hexval(substr(doc, i + 2, 4))
+                  if (lo >= 56320 && lo <= 57343) {
+                    cp = 65536 + (cp - 55296) * 1024 + (lo - 56320); i += 6
+                  }
+                }
+                val = val (cp < 0 ? "?" : utf8(cp))
+                continue
+              }
+              if      (e == "n") val = val "\n"
+              else if (e == "t") val = val "\t"
+              else if (e == "r") val = val "\r"
+              else if (e == "b" || e == "f") val = val " "
+              else val = val e
+              i += 2; continue
+            }
+            if (c == "\"") { i++; break }
+            val = val c; i++
+          }
+          j = i
+          while (j <= n && substr(doc, j, 1) ~ /[ \t\r\n]/) j++
+          if (substr(doc, j, 1) == ":") { lastkey = val; i = j + 1 }
+          else {
+            if (depth == 1 && lastkey == want) { printf "%s", val; exit }
+            lastkey = ""
+          }
+          continue
+        }
+        if (c == "{" || c == "[") depth++
+        else if (c == "}" || c == "]") depth--
+        i++
+      }
+    }
+  '
+}
+
+# One string, escaped for embedding in JSON. Backslash FIRST, or every escape
+# added after it would be escaped again.
+json_esc() {
+  local s=$1
+  s=${s//\\/\\\\}
+  s=${s//\"/\\\"}
+  s=${s//$'\t'/\\t}
+  s=${s//$'\r'/\\r}
+  s=${s//$'\n'/\\n}
+  # Remaining C0 controls have no short escape and would make the file invalid.
+  # UTF-8 is untouched: every byte of a multi-byte character is >= 0x80.
+  printf '%s' "$s" | awk '{ gsub(/[\001-\010\013\014\016-\037]/, ""); printf "%s", $0 }'
+}
 
 state="${1:-}"
 [ -n "$state" ] || exit 0
@@ -77,12 +180,12 @@ alert_clear() {
 # network — see the header: never fail, never delay.
 alert_raise() {
   repo_name="$(basename "$cwd")"
-  if [ "$NOTIFY_DROPBOX" = "1" ] && command -v jq >/dev/null 2>&1; then
+  if [ "$NOTIFY_DROPBOX" = "1" ]; then
     mkdir -p "$alert_dir" 2>/dev/null && \
-    jq -n --arg host "$host" --arg repo "$repo_name" --arg cwd "$cwd" \
-          --arg sid "$sid" --arg msg "$msg" --argjson at "$(date +%s)" \
-          '{host:$host, repo:$repo, cwd:$cwd, sid:$sid, at:$at, message:$msg}' \
-          > "$alert_dir/${host}_${sid}.json" 2>/dev/null || true
+    printf '{"host":"%s","repo":"%s","cwd":"%s","sid":"%s","at":%s,"message":"%s"}\n' \
+      "$(json_esc "$host")" "$(json_esc "$repo_name")" "$(json_esc "$cwd")" \
+      "$(json_esc "$sid")" "$(date +%s)" "$(json_esc "$msg")" \
+      > "$alert_dir/${host}_${sid}.json" 2>/dev/null || true
   fi
 
   # The default body is deliberately thin — host and repo, enough to know which
@@ -123,9 +226,9 @@ payload="$(cat 2>/dev/null || true)"
 # payload shape change degrades instead of breaking.
 cwd=""
 sid=""
-if [ -n "$payload" ] && command -v jq >/dev/null 2>&1; then
-  cwd="$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null || true)"
-  sid="$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null || true)"
+if [ -n "$payload" ]; then
+  cwd="$(printf '%s' "$payload" | json_get cwd 2>/dev/null || true)"
+  sid="$(printf '%s' "$payload" | json_get session_id 2>/dev/null || true)"
 fi
 [ -n "$cwd" ] || cwd="$PWD"
 [ -n "$sid" ] || sid="nosession-$$"
@@ -146,7 +249,8 @@ mkdir -p "$dir" 2>/dev/null || exit 0
 # the hook still exits 0 and nothing is logged anywhere.
 if [ "${DASHBOARD_HOOK_TRACE:-1}" = "1" ]; then
   {
-    prev_dbg="$(jq -r '.state // "none"' "$dir/$sid.json" 2>/dev/null || echo none)"
+    prev_dbg="$(json_get state < "$dir/$sid.json" 2>/dev/null || true)"
+    [ -n "$prev_dbg" ] || prev_dbg=none
     printf '%s  event=%-8s prev=%-8s sid=%s\n' "$(date +%H:%M:%S)" "$state" "$prev_dbg" "${sid:0:8}"
   } >> "$dir/trace.log" 2>/dev/null || true
   # keep the last 300 lines
@@ -165,8 +269,8 @@ fi
 # contract. A real question or permission prompt can only happen mid-turn,
 # between UserPromptSubmit and Stop — so the last state recorded is "working".
 # A nudge can only happen after Stop, when the last state is "done".
-if [ "$state" = "waiting" ] && command -v jq >/dev/null 2>&1; then
-  prev="$(jq -r '.state // empty' "$dir/$sid.json" 2>/dev/null || true)"
+if [ "$state" = "waiting" ]; then
+  prev="$(json_get state < "$dir/$sid.json" 2>/dev/null || true)"
   if [ "$prev" = "done" ]; then
     exit 0
   fi
@@ -175,21 +279,26 @@ fi
 # `message` is recorded only for diagnosis — nothing branches on it. Lifted out
 # of the write below because the remote alert wants it too.
 msg=""
-if [ -n "$payload" ] && command -v jq >/dev/null 2>&1; then
-  msg="$(printf '%s' "$payload" | jq -r '.message // empty' 2>/dev/null || true)"
+if [ -n "$payload" ]; then
+  msg="$(printf '%s' "$payload" | json_get message 2>/dev/null || true)"
 fi
 
-# Build with jq so a path containing quotes cannot produce invalid JSON.
-if command -v jq >/dev/null 2>&1; then
-  jq -n \
-    --arg state "$state" \
-    --arg cwd "$cwd" \
-    --arg repo "$(basename "$cwd")" \
-    --arg msg "$msg" \
-    --argjson at "$(date +%s)" \
-    '{state:$state, cwd:$cwd, repo:$repo, at:$at, message:$msg}' \
-    > "$dir/$sid.json" 2>/dev/null || true
-fi
+# `term` and `sid` are what let the panel draw a session it cannot see (D81).
+# The dashboard finds sessions by asking Terminal.app for its window titles,
+# which is the only API that answers for Spaces you are not looking at — so a
+# session in iTerm, Ghostty, kitty or Cursor's built-in terminal is invisible to
+# it. This file is not: Claude Code writes it from inside the session, whatever
+# it is running in. TERM_PROGRAM says which, so the panel can draw the ones the
+# title poll did not already account for, and skip the ones it did.
+printf '{"state":"%s","cwd":"%s","repo":"%s","at":%s,"term":"%s","sid":"%s","message":"%s"}\n' \
+  "$(json_esc "$state")" \
+  "$(json_esc "$cwd")" \
+  "$(json_esc "$(basename "$cwd")")" \
+  "$(date +%s)" \
+  "$(json_esc "${TERM_PROGRAM:-unknown}")" \
+  "$(json_esc "$sid")" \
+  "$(json_esc "$msg")" \
+  > "$dir/$sid.json" 2>/dev/null || true
 
 # The local state file is written FIRST and unconditionally: the red dot on this
 # machine must never depend on a Dropbox folder existing or a network call

@@ -653,10 +653,34 @@ icons turned off, are: one app → its name; several sharing a subject → that 
 
 Two things to know before you wonder why a line is missing:
 
-- Sessions are read from **Terminal only**. A session in iTerm, Ghostty or kitty is invisible
-  to the panel however it is configured.
+- **Desktop lines are read from Terminal.app only.** A session in iTerm, Ghostty, kitty or
+  Cursor's built-in terminal gets no *Desktop* line, because placing a session on a Desktop
+  needs its window, and Terminal is the only one that will report its windows for Spaces you
+  are not looking at. Those sessions do appear in the `T#` list — see **Sessions elsewhere**
+  below.
 - A **minimized** terminal window reports no Desktop, so its session gets no Desktop line.
   It still appears in the `T#` sessions view.
+
+### Sessions elsewhere
+
+A session that isn't in Terminal.app is drawn from its **hook state file** instead, which
+Claude Code writes from inside the session whatever it is running in. You get the project,
+the dot, what it's asking, and the name of the terminal it's in:
+
+```
+   T4 ● ● MODIS_L2_Manuscript  · Cursor
+             May I edit orbit_rea…
+```
+
+What you don't get is a Desktop, and that's deliberate: a hook file knows the repo, not the
+window, so claiming a Desktop would be a guess dressed up as a reading. These lines appear
+even in Desktops mode, in their own `Sessions elsewhere:` block — a session you can't see
+isn't less urgent because of which view you're in.
+
+The state behind them is if anything *better* than a Terminal session's: the hook records
+"waiting" at the moment Claude Code asks, where the Terminal path has to infer it from a
+spinner glyph. **This needs the hook installed** (see below); without it there are no lines
+for non-Terminal sessions at all. Turn the whole thing off with `M.showHookSessions = false`.
 
 ## Configuration
 

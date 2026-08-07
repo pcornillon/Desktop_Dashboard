@@ -4,7 +4,7 @@
 git state.
 **Produces:** `desktop_dashboard.lua` — a single-file tool loaded from
 `~/.hammerspoon/init.lua` — plus `claude-dashboard-state.sh`, its Claude Code hook.
-**State:** v55, working and in daily use; see `STATUS.md`.
+**State:** v56, working and in daily use; see `STATUS.md`.
 
 Context for AI coding sessions on this repo. Read this before changing
 `desktop_dashboard.lua`. `README.md` is the user-facing install/usage doc; **`DECISIONS.md`
@@ -18,7 +18,7 @@ design ruling lives there as a numbered `D##`.
 | `CLAUDE.md` (this file) | what the project is, the architecture, the layout |
 | `STATUS.md` | where things stand right now, ending in the **active thread** |
 | `LOG.md` | one line per prompt — scan this to see what has been done |
-| `DECISIONS.md` | **D1–D79** — every design ruling and the measurement behind it |
+| `DECISIONS.md` | **D1–D81** — every design ruling and the measurement behind it |
 | `TASKS.md` | the work list: numbered tasks with `Status:` lines |
 
 ## What this project is
@@ -41,7 +41,7 @@ The module returns a table `M` with a `CONFIG` block at the top and `M.start()` 
 ```
 CLAUDE.md               this file — project context, architecture, layout
 STATUS.md               where things stand + active thread
-DECISIONS.md            D1–D79 — every design ruling, with its measurement
+DECISIONS.md            D1–D81 — every design ruling, with its measurement
 TASKS.md                numbered work list with Status: lines
 LOG.md                  append-only one-line-per-prompt index
 README.md               human-facing overview, controls, config, limitations
@@ -56,7 +56,8 @@ SESSIONS/               curated session logs, one per session, P## per prompt
 DOCS/                   panel.png — the screenshot README.md is built around
 PRE_CONVERSION/         the one-time 2026-07-27 repo-migration record (D63)
 LATEX/                  empty — no manuscript here
-ISSUE_ANALYSES/         empty — no scripted investigations here
+ISSUE_ANALYSES/         hook_without_jq/ — why a colleague's Mac showed nothing
+                        Python/test_claude_dashboard_hook.py — the hook's test suite
 ```
 
 **The code stays at the top level and does not move into a spine folder (D64).**
@@ -147,7 +148,7 @@ minimized session window reports no Space, so it gets no Desktop line — it is 
 
 ## Where the design rulings live
 
-They are **not** in this file. `DECISIONS.md` holds all 79, with the measurements intact —
+They are **not** in this file. `DECISIONS.md` holds all 81, with the measurements intact —
 the ~40 ms `hs.window.get` cost, the 750-sample dot study, the Menlo 13 glyph widths, the
 observation dates. The ones most likely to be violated by accident:
 
@@ -165,6 +166,15 @@ observation dates. The ones most likely to be violated by accident:
 These are platform facts rather than choices, which is why they are here and not in
 `DECISIONS.md`.
 
+- **A guarded dependency in the hook is worse than no dependency.** `command -v jq` around
+  every call meant a machine without `jq` wrote no state file and exited 0 — the red dot
+  never lit and nothing anywhere said why (**D80**, now `awk` only). The same shape would
+  hide any tool you reach for there: the hook must never fail loudly, so it will hide a
+  missing tool for ever unless it has none.
+- **The deployed hook is a DIFFERENT FILE from this repo's copy.** `~/.claude/settings.json`
+  runs `~/Git_Repos/claude-config/hooks/claude-dashboard-state.sh`. Editing the copy here
+  changes nothing until it is copied there and `diff`ed. This has caught two sessions now —
+  it is what Task #1 was opened for.
 - **A wrong key in `M.docApps` fails silently and for ever.** The key must be the app's own
   name as macOS reports it — check it against `hs.application.runningApplications()`, not
   against the menu bar or the `.app` filename, and not against `CFBundleName` either
@@ -214,7 +224,21 @@ These are platform facts rather than choices, which is why they are here and not
 
 ## Testing
 
-There is no automated suite — it is live-GUI behaviour. To sanity-check a change: Reload
+**You can photograph the panel from a session**, which makes "does it draw" checkable
+rather than a question for whoever is at the machine:
+
+```lua
+-- the panel is a layer-3 CoreGraphics window owned by Hammerspoon
+hs.window.snapshotForID(<its kCGWindowNumber>, true):saveToFile("/tmp/panel.png")
+```
+
+Find the id in `hs.window.list(true)`, taking the largest layer-3 Hammerspoon window.
+**`hs.screen:snapshot()` does NOT work** — it returns the desktop with our canvases missing,
+which reads as "the panel isn't drawing" when it is. Found 2026-08-06 verifying D81.
+
+There is no automated suite for the Lua — it is live-GUI behaviour. The **hook** does have
+one: `python3 ISSUE_ANALYSES/Python/test_claude_dashboard_hook.py`, which runs it with `jq`
+off the PATH (D80). To sanity-check a change: Reload
 Config, confirm the `vNN loaded` line, press ⌘⌃⌥s, then open/close a repo file and a
 non-repo app on a Desktop and confirm the label updates within ~1 s. If a Desktop stalls,
 the per-app / per-window timing probes in the project history are the way to pinpoint the

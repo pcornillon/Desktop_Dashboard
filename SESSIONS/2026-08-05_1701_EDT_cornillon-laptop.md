@@ -239,3 +239,55 @@ to establish for Terminal.
 
 Nothing built — put to Peter as a choice between implementing it here and writing it up as
 an issue for the colleague to work from.
+
+## P6 · 2026-08-06 17:05 EDT · build it here: no `jq`, and sessions in any terminal
+
+Peter: *"I would prefer to do whatever is needed here. If he needs it others will likely need
+it as well."* And on `jq`: *"the better option is to do the rewrite — better if we can make
+it work in the same way without requiring the user to load another tool."* Plus two
+questions, answered below.
+
+**The hook now has no external dependency (D80).** `jq` is gone rather than made optional:
+`json_get` (awk) parses the payload, `json_esc` (bash string operators plus one awk pass for
+C0 controls) writes it. Every former call site replaced — the payload parse, the trace line,
+the D19 nudge filter's previous-state read, the message, the state file and the Dropbox
+marker.
+
+- **It is 4× faster, measured**: 20 invocations each, same payload and sandboxed `HOME` —
+  `jq` **121–128 ms**, awk **33 ms**. That was being paid on every prompt of every session.
+- **`\uXXXX` decoding was a bug I introduced and caught in test.** The first draft turned
+  every escaped character into `?`, which silently corrupts a path. Fixed by decoding to real
+  UTF-8, surrogate pairs included — awk emits raw bytes from a decimal `%c`, verified
+  (`226,156,179` → `✳`). Claude Code's own payloads do not escape non-ASCII, so this is belt
+  and braces; it cost six lines.
+- **The test suite is real and committed**:
+  `ISSUE_ANALYSES/Python/test_claude_dashboard_hook.py`, run with `PATH` stripped of `jq` and
+  asserting that. Hostile paths, emoji, C0 bytes, a nested decoy `cwd`, the full
+  working→waiting→working→done→nudge→gone sequence, and four kinds of degraded input.
+
+**Non-Terminal sessions now get a line (D81).** `readHookSessions` keeps the per-file records
+`readHookStates` was throwing away; `hookSessionEntries` draws them in the `T#` list with the
+dots, the project, the question and the terminal's name — and **no Desktop line**, because a
+hook file knows the repo and not the window. They show even in Desktops mode, in a
+`Sessions elsewhere:` block. The hook writes `$TERM_PROGRAM`, so `Apple_Terminal` is excluded
+and the two paths cannot draw one session twice.
+
+**Verified live, and this is the useful part for future work.** A fake `Cursor` state file
+was written into `~/.hammerspoon/claude_state/`, and the panel **photographed**:
+
+- `hs.screen:snapshot()` returns the desktop **without** Hammerspoon's canvases — it looked
+  exactly like "the panel isn't drawing" when it was. Cost twenty minutes.
+- `hs.window.snapshotForID(<panel's kCGWindowNumber>, true)` **works**. The panel is a
+  layer-3 CoreGraphics window owned by Hammerspoon; find it in `hs.window.list(true)`.
+- It drew `T4 ● ● MODIS_L2_Manuscript · Cursor` with a red claude dot, a green git dot, and
+  `May I edit orbit_rea…` beneath. Recorded in `CLAUDE.md`'s Testing section, because it
+  turns "does it draw" from a question for whoever is at the machine into something a session
+  can check.
+
+**The deployed hook was synced.** `settings.json` runs `claude-config/hooks/…`, so editing
+this repo's copy alone would have changed nothing — the trap Task #1 exists for, hit again.
+Copied, `chmod +x`, `diff` clean. Peter's own sessions now write `term` too.
+
+**His two questions.** Yes: a Cursor session shows in the sessions (`T#`) list, not the
+Desktop list, and that is the ceiling for Cursor. And yes — installing iTerm here is exactly
+what would let the two open measurements be made.

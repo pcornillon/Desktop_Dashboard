@@ -166,3 +166,13 @@ invented index is worse than a short one.
     `~/.hammerspoon/claude_state/*.json`, dots but no Desktop line, deduped on
     `$TERM_PROGRAM` (verified present in the hook's environment). Nothing built — Peter's
     call
+- ★ **P6** `1701_cornillon-laptop` · 2026-08-06 17:05 EDT · make it work for the colleague:
+  no `jq`, and sessions in any terminal
+  → **v56**, **D80**, **D81**, Task **#13**, `ISSUE_ANALYSES/hook_without_jq/`. The hook is
+    **dependency-free** — `awk` and bash replace `jq`, which macOS does not ship and whose
+    absence silently killed the red dot — and **4× faster with it: 33 ms against 121–128**.
+    Non-Terminal sessions (iTerm, Ghostty, kitty, Cursor, ssh) now get a `T#` line from their
+    hook file with dots and the terminal's name, and no Desktop line. Verified live from a
+    fake `Cursor` state file by photographing the panel with `hs.window.snapshotForID` —
+    `hs.screen:snapshot()` cannot see our canvases. Deployed hook synced to `claude-config`
+    and diffed

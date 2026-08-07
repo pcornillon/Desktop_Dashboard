@@ -1,15 +1,15 @@
 # STATUS.md — Desktop Dashboard
 
 Living snapshot of where this project stands. Rewritten, not appended.
-Last updated: **2026-08-06 16:30 EDT** (`cornillon-laptop`).
+Last updated: **2026-08-06 17:40 EDT** (`cornillon-laptop`).
 
 ---
 
 ## State
 
-- **The tool is at `v55`, in daily use, and everything since `v52` has now been run.**
-  `M.version` reads `"v55 (TeXShop, BibDesk, PowerPoint and OmniGraffle can name a Desktop
-  too, 2026-08-06)"`.
+- **The tool is at `v56`, in daily use, and everything since `v52` has now been run.**
+  `M.version` reads `"v56 (sessions in any terminal, from their hook files; the hook no
+  longer needs jq, 2026-08-06)"`.
   `v51` before it was the **merge of two machines' parallel work**. One file.
 - **`v53` fixed two connected naming faults, both found from the laptop on 2026-08-05.**
   `M.docApps` listed `["MacDown 3000"]` and the app is called **`MacDown`** — so no MacDown
@@ -77,7 +77,7 @@ Everything in this section was run or read, not recalled.
 - Working tree clean and level with `origin/main` before the migration began
   (`6442953`).
 
-## Decisions taken (D1–D79)
+## Decisions taken (D1–D81)
 
 D1–D64 were lifted from `CLAUDE.md` on 2026-08-03. **Eleven are new on 2026-08-04.** Written
 here: every `hs.task` carries a timeout (**D65**), a subprocess writes to a file rather than
@@ -108,63 +108,55 @@ open there, in white (D75). A name typed by hand belongs to a **project**, never
 Desktop (D76, superseding D16).
 Portability: no synced folder, no polling (D77); the code's own install steps must not
 contradict INSTALL.md (D78). TeXShop measured at 0.1 ms and let into docApps, closing D32's
-five-day-old live tension (D79).
+five-day-old live tension (D79). The hook carries no external dependency (D80), and a session
+with no window still gets a line (D81).
 Remote work: legend words are buttons (D68–D71), the hook raises the alert (D72–D73).
 
 ## Active thread — resume here
 
-**Nothing is in flight.** Everything from `v53` through `v55` has been run on this machine
-and behaves as designed; Peter confirmed ⌘⌃⌥N works properly in both branches on 2026-08-06,
-which was the last untested piece.
+**Nothing is in flight.** `v56` is loaded and everything in it has been exercised.
 
-**What is now verified, not assumed:**
+**Today's work, in order:** `v53`/`v54` fixed the MacDown allowlist key and made a ⌘⌃⌥N name
+belong to a project (D76–D78); `v55` measured TeXShop and let it into `docApps` (D79); `v56`
+made the hook dependency-free and gave a line to sessions the title poll cannot see
+(D80, D81, Task #13) — all of which came out of a colleague being unable to get the panel
+working on his Mac.
 
-- **MacDown reports its documents.** The same two windows saved `doc=''` under `v52` and full
-  repo paths under `v54`.
-- **Two Desktops renamed themselves** on the first ⌘⌃⌥S: `MacDown` → `MODIS_L2_Manuscript`
-  and `MacDown` → `three-way_SST_error_analysis_manuscript`. Both hold nothing but a MacDown
-  window.
-- **The D76 migration took.** No `manual` key survives in the state file; `3-way analysis` is
-  gone, and the project it named now draws under Peter's existing alias **3-way SST
-  analysis** on every Desktop that project is on.
-- **⌘⌃⌥N renames the project, and refuses where there is no project.** Confirmed by Peter.
-- **TeXShop is inside the pull's open-file check at last** (**D79**): 0.10–0.23 ms, the same
-  as MacDown and Preview, so it went on the list rather than being documented around. Its
-  two windows on Desktop 5 now report `LATEX/main.tex` and `LATEX/main.pdf`.
+**What is verified, not assumed:**
 
-**Still never exercised, and unchanged by any of this:** click-to-cycle on a session line;
-⌘⌃⌥g and its pull through the rewritten `runTask`; the clickable legend words and the
-remote-alert line alongside the per-project Desktop lines.
+- **MacDown reports its documents**; the same two windows saved `doc=''` under `v52` and full
+  repo paths under `v54`, and ⌘⌃⌥S then renamed two Desktops from `MacDown` to their projects.
+- **⌘⌃⌥N renames the project and refuses where there is none** — confirmed by Peter.
+- **TeXShop's `AXDocument` costs 0.10–0.23 ms**, the same as MacDown and Preview.
+- **The hook, with `jq` off the PATH**: the full suite in
+  `ISSUE_ANALYSES/Python/test_claude_dashboard_hook.py` passes, and it is **4× faster than
+  the `jq` version** (33 ms against 121–128).
+- **A non-Terminal session draws**: a fake `Cursor` state file produced
+  `T4 ● ● MODIS_L2_Manuscript · Cursor` with the right dots and the question beneath.
+- **The deployed hook is byte-identical** to this repo's copy again.
 
-**Reported and deliberately not fixed — the `jq` dependency.** Without `jq` on the hook's
-`PATH`, `claude-dashboard-state.sh` writes no state file and exits 0, so the red dot silently
-never lights. On this laptop `jq` resolves to `~/opt/anaconda3/bin/jq`, which is not a
-property of this project. Hardening it is a decision about the hook, not a cleanup.
+**The one open piece of work — iTerm2 Desktop placement.** Peter has offered to install iTerm
+on this machine, and that is what it needs. **Two measurements, in this order:**
 
-**Open questions, none blocking:**
+1. Does iTerm2's AppleScript enumerate windows on **inactive** Spaces the way Terminal's
+   does? If not, nothing else matters — that is the whole reason the poll is Terminal-only.
+2. Is iTerm2's AppleScript window `id` the same id `hs.spaces.windowSpaces` takes? D67 had to
+   establish this for Terminal before any of the current design worked.
 
-- **Adobe Acrobat** is installed (in `/Applications/Adobe Acrobat DC/`) and is not in
-  `M.docApps`; Preview is, and is what opens repo PDFs here. Left out; say if it should join.
-- **MATLAB** is still out and is the app D5's multi-minute stalls were written about. Eight
-  versioned bundles, each reporting its own name, so it needs eight keys or a pattern.
-- The `claude-config` half of session `8006f23a` (`4d4e6fb`) has no log in that repo.
-  **D34** says it should have one; Peter has not been asked.
+If both pass, iTerm sessions get real Desktop lines and stop being `Sessions elsewhere`.
+**Cursor cannot be fixed this way** and the `T#` line is its ceiling: Electron, no usable
+AppleScript dictionary, and titles that name a file and a workspace rather than the session.
 
-**Pushed 2026-08-06:** `Desktop_Dashboard` `487c8fa` (`v53`–`v55`, D76–D79, Tasks #8–#12,
-both session logs) and `claude-config` `7f36146` (D35 and the working-rule change).
-**The iMac has not pulled either**, and it is the machine the cross-machine alert was built
-for.
+**Still never exercised:** click-to-cycle on a session line; ⌘⌃⌥g and its pull through the
+rewritten `runTask`; the clickable legend words alongside the per-project Desktop lines.
 
-**Waiting on Peter — a colleague cannot use the panel at all.** He runs claude in iTerm and
-Cursor, and **no view of the panel shows a non-Terminal session**: the Desktop lines and the
-`T#` list are both built from the Terminal-only title poll, and `readHookStates` throws away
-per-session identity before anything could draw it. The proposal on the table is a
-**hook-only sessions list** — draw `T#` lines from `~/.hammerspoon/claude_state/*.json` for
-sessions the title poll did not account for, with dots but no Desktop line, which respects
-D67 instead of bending it. Dedupe wants one small hook change (`$TERM_PROGRAM` into the state
-file; verified present in the hook's environment). It covers iTerm, Ghostty, kitty, Cursor,
-VS Code and ssh in one change. **Nothing built** — Peter has to choose between building it
-here and writing it up as an issue for the colleague to work from.
+**How to check the panel from a session** (found today, and it is in `CLAUDE.md`'s Testing
+section): `hs.window.snapshotForID(<the panel's kCGWindowNumber>, true)`, taking the largest
+layer-3 Hammerspoon window from `hs.window.list(true)`. **`hs.screen:snapshot()` does not
+work** — it returns the desktop with the canvases missing, which reads as a bug that isn't
+there.
+
+**The iMac has pulled none of today's work**, and its hook is still the `jq` version.
 
 **Finder tags do not travel in git.** After pulling this repo on the other machine, run
 `~/Git_Repos/claude-config/tag-spine.sh ~/Git_Repos/Desktop_Dashboard`.

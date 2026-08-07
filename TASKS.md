@@ -418,3 +418,42 @@ repo PDFs here. Say so if Acrobat should join it.
 **The lesson is the audit method, not the list** — an allowlist keyed on an app's reported
 name can only be checked against apps you actually enumerate, and enumerating one directory
 level is not enumerating the machine.
+
+
+## Task #13 — A colleague's Mac shows nothing: the hook's `jq`, and terminals other than Terminal.app
+
+**Status:** done (2026-08-06)
+
+Reported by Peter on behalf of a colleague who runs `claude` in **iTerm** and **Cursor** and
+could not get the panel to show anything. Two independent causes, both of which fail
+**silently**, written up in `ISSUE_ANALYSES/hook_without_jq/`.
+
+**1. The hook required `jq` (D80).** macOS ships none. Every call was guarded with
+`command -v jq`, so without it the hook wrote **no state file and exited 0** — no red dot, no
+error, nothing to diagnose from. Rewritten with `awk` and bash string operators, so the hook
+now has **no external dependency at all**. It is also **4× faster: 33 ms per call against
+121–128 ms** for the `jq` version, measured 20 invocations each, and that cost was paid on
+every prompt of every session.
+
+Covered by a real test suite — `ISSUE_ANALYSES/Python/test_claude_dashboard_hook.py`, run
+with `jq` off the `PATH`: hostile paths, `\uXXXX` payloads including a surrogate pair, the
+D19 nudge filter end to end, and four kinds of degraded input. All pass.
+
+**2. Only Terminal.app produced a session line (D81).** Not just no Desktop line — no line
+anywhere, since `sessionEntries` iterates the same Terminal-derived table. Non-Terminal
+sessions are now drawn from their hook state files in the `T#` list, with dots, the project,
+the question and the terminal's name, and **no Desktop line** (a hook file knows the repo,
+not the window — D67). Shown even in Desktops mode, in a `Sessions elsewhere:` block. The
+hook writes `$TERM_PROGRAM` so the two paths cannot draw the same session twice.
+
+**Verified live** with a fake `Cursor` state file: the panel drew
+`T4 ● ● MODIS_L2_Manuscript · Cursor`, red claude dot, green git dot, question beneath.
+**And the deployed hook was synced** — `settings.json` runs the `claude-config` copy, so the
+repo's copy alone would have changed nothing (the Task #1 trap, hit again).
+
+`v55` → **`v56`**.
+
+**Not done — iTerm2 Desktop placement.** Two measurements have to come first and neither is
+possible on a machine with no iTerm: whether iTerm2's AppleScript enumerates windows on
+inactive Spaces, and whether its window `id` is the one `hs.spaces` uses. Peter has offered
+to install it.

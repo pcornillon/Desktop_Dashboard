@@ -75,7 +75,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v55 (TeXShop, BibDesk, PowerPoint and OmniGraffle can name a Desktop too, 2026-08-06)"
+M.version = "v56 (sessions in any terminal, from their hook files; the hook no longer needs jq, 2026-08-06)"
 
 -- ============================ CONFIG ============================
 
@@ -156,6 +156,26 @@ M.claudeDotSeconds = 3           -- how often titles are read (async, never bloc
 M.taskTimeout      = 20
 M.claudeStateDir   = os.getenv("HOME") .. "/.hammerspoon/claude_state"
 M.claudeHookMaxAgeHours = 12     -- ignore state files older than this
+
+-- SESSIONS THE TITLE POLL CANNOT SEE (D81). Sessions are found by asking
+-- Terminal.app for its window titles, which is the only API that answers for
+-- Spaces you are not looking at — so a session in iTerm, Ghostty, kitty or
+-- Cursor's built-in terminal appears NOWHERE on the panel, not as a Desktop
+-- line and not in the T# list. Its hook state file is written all the same,
+-- because Claude Code writes that from inside the session.
+--
+-- With this on, those sessions are drawn from their hook files: the repo, the
+-- dot, and what they are asking — but NO Desktop line, because a hook file
+-- knows the repo and not the window, and a Desktop claim it cannot support is
+-- worse than no claim (D67).
+--
+-- `Apple_Terminal` is excluded: the title poll already draws those, with a
+-- window and a Desktop behind them. So is a file with no `term` at all, which
+-- is one written by a hook older than v56 — those age out within
+-- claudeHookMaxAgeHours.
+M.showHookSessions = true
+M.hookSessionHeader = "Sessions elsewhere:"
+M.hookSessionTerminal = "Apple_Terminal"   -- the one the title poll covers
 M.claudeDotColors  = {
   working = { red = 1.00, green = 0.78, blue = 0.20, alpha = 1 },   -- yellow: computing
   waiting = { red = 1.00, green = 0.28, blue = 0.26, alpha = 1 },   -- red: wants you
@@ -500,6 +520,7 @@ local tipCanvas, tipTimer, tipWatch, focusTimer
 local repos      = {}
 local reposLoadedAt = 0        -- when loadRepos() last ran (see refreshRepos)
 local claudeStates = {}        -- repo name (lowercased) -> "working" | "idle"
+local hookSessions = {}        -- D81: sessions the title poll cannot see
 local claudeHooks  = {}        -- repo name -> "working" | "waiting" | "done" (from hooks)
 local sessions     = {}        -- one entry per claude terminal window, ordered
 -- D67. A session belongs to the Desktop its WINDOW is on, which is a fact —
@@ -912,6 +933,45 @@ local function readHookStates()
   return out
 end
 
+-- The sessions the title poll cannot see, one record per hook state file (D81).
+-- Same directory and same age bound as readHookStates above; what differs is
+-- that this keeps the files APART instead of collapsing them to repo -> state,
+-- because each one is a session that wants its own line.
+local function readHookSessions()
+  local out = {}
+  if not M.showHookSessions then return out end
+  local dir = M.claudeStateDir
+  if not (dir and hs.fs.attributes(dir)) then return out end
+  local maxAge = (M.claudeHookMaxAgeHours or 12) * 3600
+  local now = os.time()
+  pcall(function()
+    for name in hs.fs.dir(dir) do
+      if name:sub(-5) == ".json" then
+        local t = hs.json.read(dir .. "/" .. name)
+        if type(t) == "table" and t.repo and t.state
+           and type(t.term) == "string" and t.term ~= ""
+           and t.term ~= (M.hookSessionTerminal or "Apple_Terminal")
+           and (not t.at or (now - t.at) <= maxAge) then
+          out[#out + 1] = {
+            sid     = tostring(t.sid or name:gsub("%.json$", "")),
+            project = t.repo,
+            cwd     = t.cwd,
+            state   = t.state,
+            term    = t.term,
+            summary = tostring(t.message or ""),
+            at      = tonumber(t.at) or 0,
+          }
+        end
+      end
+    end
+  end)
+  -- Sort by session id, not by mtime: the ids are stable for the life of a
+  -- session, so T-numbers keep meaning across polls the way the Terminal ones
+  -- do (there it is the ascending window id that provides this).
+  table.sort(out, function(a, b) return a.sid < b.sid end)
+  return out
+end
+
 -- What the panel would show: title state, the unacknowledged flag, and the hook
 -- state, since the dot depends on all three. Decides whether to repaint.
 local function dotKey()
@@ -925,6 +985,11 @@ local function dotKey()
     keys[#keys + 1] = "w" .. tostring(s.wid) .. "=" .. s.state ..
                       (sessionDone[s.wid] and "!" or "") .. "/" .. tostring(s.summary) ..
                       "@" .. tostring(s.sid)
+  end
+  -- D81: a session with no window still has to repaint the panel when its dot
+  -- changes, and nothing above this line would notice one.
+  for _, h in ipairs(hookSessions) do
+    keys[#keys + 1] = "h" .. h.sid .. "=" .. h.state .. "/" .. h.summary
   end
   table.sort(keys)
   return table.concat(keys, ",")
@@ -1015,6 +1080,7 @@ local function refreshClaudeStates()
     sessionsBySpace = mapSessionsToSpaces(sessions)   -- D67: window -> Desktop
     frontSession = frontId
     claudeHooks  = readHookStates()
+    hookSessions = readHookSessions()          -- D81
     noteTransitions(claudeStates)
     noteSessionTransitions(sessions)
     acknowledgeFrontSession(frontId)   -- the window you're looking at is "seen"
@@ -1659,6 +1725,39 @@ end
 -- window's own title. Red is per repo: the hooks record a session id and a cwd,
 -- and there is no key joining a hook file to a Terminal window — so if two
 -- sessions share a repo and one is asking you something, both show red.
+-- The same line, for a session that has no window on this machine's Terminal
+-- (D81): iTerm, Ghostty, kitty, Cursor, an ssh session, anything. Everything
+-- here comes from the hook file, so the state is first-hand — the hook records
+-- `waiting` at the instant Claude Code asks, which is MORE reliable than the
+-- Terminal title, not less. What is missing is only the window: no click
+-- target, no Desktop line, and the terminal's own name is shown so it is
+-- obvious why this one is listed apart.
+local function hookSessionEntries(startAt)
+  local entries = {}
+  for i, h in ipairs(hookSessions) do
+    local state = M.showClaudeDot and h.state or nil
+    if state == "idle" or state == "gone" then state = nil end
+    local dots = withPlaceholders({ claudeDotSpec(state), gitDotSpec(gitStateFor(h.project)) })
+    local mid  = dots[1].ch .. " " .. dots[2].ch
+    local prefix  = string.format("   T%d ", startAt + i - 1)
+    local project = " " .. displayName(h.project or "?") .. "  · " .. (h.term or "?")
+    local summary = tostring(h.summary or "")
+    local lim = M.sessionSummaryChars or 20
+    if uwidth(summary) > lim then summary = summary:sub(1, lim) .. "…" end
+    entries[#entries + 1] = {
+      dots = dots, prefix = prefix, suffix = project,
+      text = prefix .. mid .. project,
+    }
+    if M.sessionTwoLine and summary ~= "" then
+      local indent = string.rep(" ", uwidth(prefix) + 2 + (M.sessionSummaryIndent or 5))
+      local line2  = indent .. summary
+      entries[#entries + 1] = { dots = {}, dim = true,
+                                prefix = line2, suffix = "", text = line2 }
+    end
+  end
+  return entries
+end
+
 local function sessionEntries()
   local entries = {}
   for i, s in ipairs(sessions) do
@@ -1701,6 +1800,9 @@ local function sessionEntries()
       }
     end
   end
+  -- Numbered on from the Terminal sessions, so T1..Tn is one sequence however a
+  -- session happens to be running.
+  for _, e in ipairs(hookSessionEntries(#sessions + 1)) do entries[#entries + 1] = e end
   if #entries == 0 then
     local msg = "   (no claude sessions found)"
     entries[1] = { dots = {}, prefix = msg, suffix = "", text = msg }
@@ -2611,6 +2713,13 @@ draw = function()
     -- In "both" the section needs a header to separate it from the Desktops;
     -- alone it is the whole panel and a header would just be noise.
     addBlock(M.mode == "both" and M.sessionHeader or nil, sessionEntries())
+  elseif #hookSessions > 0 then
+    -- Desktops mode, and there are sessions with no Desktop to appear on (D81).
+    -- They get their own small block rather than nothing: leaving them out is
+    -- exactly the complaint this exists to answer, and a session you cannot see
+    -- is not made less urgent by the view you happen to be in. Costs nothing on
+    -- a machine where every session runs in Terminal, because there are none.
+    addBlock(M.hookSessionHeader or "Sessions elsewhere:", hookSessionEntries(1))
   end
   if hasStatus then maxChars = math.max(maxChars, uwidth(M.status)) end
 

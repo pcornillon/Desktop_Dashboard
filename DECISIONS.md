@@ -1102,3 +1102,69 @@ change tense to stand alone.
   four things to pull back out**, and D5's warning stands unchanged for everything else.
 - **Where:** `M.docApps`, D5's closing note, D32's live tension, README's "What to be careful
   about" — `v55`.
+
+### D80. The hook carries no external dependency
+- **Decision:** `claude-dashboard-state.sh` parses and emits JSON with `awk` and bash's own
+  string operators. **`jq` is gone**, not made optional.
+- **Why:** every `jq` call was already guarded with `command -v jq`, so a machine without it
+  wrote **no state file and exited 0** — the red dot never lit, and there was nothing
+  anywhere to explain why. macOS ships no `jq`, so **that machine is every fresh install**,
+  which is exactly where this was found: a colleague could not get the panel working.
+  Guarding a dependency is not the same as not having one; it converts a missing tool into a
+  silent absence of behaviour, which is the worst of the three outcomes (work / fail loudly /
+  fail silently).
+- **It is also four times faster.** Measured 2026-08-06, 20 invocations each, same payload,
+  same sandboxed `HOME`: **jq 121–128 ms per call, awk 33 ms.** The hook runs on
+  `UserPromptSubmit`, so that cost was on every prompt of every session.
+- **`\uXXXX` is decoded properly**, surrogate pairs included, because awk emits raw bytes
+  from a decimal `%c` (verified: `226,156,179` → `✳`). The first draft returned `?` for every
+  escaped character, which is silent corruption of a path. Claude Code's own payloads do not
+  escape non-ASCII — JavaScript's `JSON.stringify` emits it raw — so this is belt and braces,
+  and it cost six lines.
+- **Verified in a sandboxed `HOME` with `PATH=/usr/bin:/bin:/usr/sbin:/sbin`** (no `jq`
+  reachable, asserted by the test): ordinary payload; a `cwd` containing a quote, an
+  apostrophe and a backslash; a message with newlines, tabs, emoji and C0 control bytes; a
+  **nested object carrying a decoy `cwd` and `session_id`**, which must not win; the full
+  `working → waiting → working → done → nudge → gone` sequence including **D19's nudge
+  filter**; a missing `session_id`; an empty payload; a garbage payload; and no argument at
+  all. **Every state file written parses as JSON.** The suite is
+  `ISSUE_ANALYSES/Python/test_claude_dashboard_hook.py`.
+- **Where:** `json_get`, `json_esc` and all five former `jq` call sites in
+  `claude-dashboard-state.sh` — `v56`.
+
+### D81. A session with no window still gets a line
+- **Decision:** sessions the Terminal title poll cannot see are drawn from their hook state
+  files, in the `T#` list, with dots and the terminal's name — and **no Desktop line**. On a
+  machine where every session runs in Terminal.app, nothing changes at all. Controlled by
+  `M.showHookSessions`; `Apple_Terminal` is excluded, because the title poll already covers
+  those with a real window behind them.
+- **Why:** a session in iTerm, Ghostty, kitty or Cursor's built-in terminal appeared
+  **nowhere on the panel** — not as a Desktop line and not in the `T#` list, since
+  `sessionEntries` iterates the same Terminal-derived table. For the colleague who reported
+  this the panel was not degraded, it was empty. Meanwhile the hook file for every one of
+  those sessions was already on disk and `readHookStates` was **throwing the per-session
+  detail away** to build a `repo → state` map.
+- **Why no Desktop line, when that is what the panel is for:** a hook file knows the repo and
+  the working directory. It does not know a window, and `hs.spaces.windowSpaces` is what
+  places a session on a Desktop (**D67**). A Desktop claim with nothing behind it would be a
+  guess presented as a reading, and this panel's whole value is that its lines are true. So
+  the line says what is known — which project, what state, which terminal — and stays out of
+  the Desktop list.
+- **They are shown even in Desktops mode**, in their own `Sessions elsewhere:` block. Leaving
+  them out of a view is exactly the complaint this answers; a session you cannot see is not
+  made less urgent by the view you happen to be in.
+- **The state is arguably better than a Terminal session's**, not worse: the hook records
+  `waiting` at the instant Claude Code asks, where the title poll has to infer state from a
+  spinner glyph (**D17**). What is missing is only the window.
+- **A file with no `term` field is skipped** rather than assumed. That is one written by a
+  hook older than `v56` — including, at the moment this shipped, every session on Peter's own
+  machine — and guessing would have put duplicate lines under the Terminal ones. They age out
+  within `M.claudeHookMaxAgeHours`.
+- **Requires the deployed hook to be updated**, not just this repo's copy: `settings.json`
+  runs `claude-config/hooks/claude-dashboard-state.sh`. Synced and verified byte-identical
+  the same day — the trap Task #1 was opened for.
+- **Verified live** by writing a fake `Cursor` state file and photographing the panel: it
+  drew `T4 ● ● MODIS_L2_Manuscript · Cursor` with a red claude dot, a green git dot, and
+  `May I edit orbit_rea…` on the dimmed line beneath.
+- **Where:** `readHookSessions`, `hookSessionEntries`, `sessionEntries`, `draw`,
+  `M.showHookSessions` — `v56`.

@@ -14,17 +14,17 @@ screen to confirm the panel appeared (step 5). Everything else can be done for y
 - [Hammerspoon](https://www.hammerspoon.org) — free, open‑source, notarized.
   **No SIP changes required.**
 - `git`, for the git dot. Any Xcode Command Line Tools install provides it.
-- **`jq`, but only for the red dot** (`brew install jq`) — macOS does not ship it.
-  Everything else works without it. Get this wrong and there is no error to see:
-  `claude-dashboard-state.sh` guards every `jq` call, so on a machine without it the hook
-  writes **no state file at all and exits 0**, and the red dot simply never lights. If you
-  are wondering why yellow and green work and red doesn't, check this first.
+- **Nothing else.** The hook needs no `jq` and no other tool as of `v56`; it uses `awk` and
+  bash, both of which macOS ships. (Before that it needed `jq` and failed *silently* without
+  it — if you are running an older copy, that is why your red dot never lights.)
 
-**Which terminal you run `claude` in matters.** Sessions are found by asking **Terminal.app**
-for its window titles, which is the only API that answers for Spaces you are not looking at.
-A session in iTerm, Ghostty, kitty or Cursor's built-in terminal **does not appear on the
-panel at all** — not as a Desktop line and not in the `T#` sessions list. The Desktop labels,
-the git dots and ⌘⌃⌥g all work regardless; it is only the session lines that need Terminal.
+**Which terminal you run `claude` in matters, but less than it used to.** Sessions get a
+**Desktop line** only from Terminal.app, whose AppleScript is the one API that reports window
+titles for Spaces you are not looking at. A session in iTerm, Ghostty, kitty or Cursor's
+built-in terminal still appears in the **`T#` sessions list**, drawn from its hook state file
+— project, dot, question, and which terminal it is in — but with no Desktop attached. That
+half needs the hook installed (see *Optional: the red dot*, below); everything else on the
+panel works regardless.
 
 ## Steps
 
