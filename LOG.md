@@ -197,3 +197,38 @@ invented index is worse than a short one.
     was needed; `settings.json` in `claude-config` and `INSTALL.md` step 2 carry it. Also
     answered how to start claude inside VS Code, which lands as a `· vscode` line under
     D81 — no Desktop, because VS Code is Electron
+- **P10** `1701_cornillon-laptop` · 2026-08-06 22:55 EDT · am I running claude in
+  opendap-registry?
+  → no, and shown rather than asserted: two `claude` processes, `cwd=Desktop_Dashboard` and
+    `cwd=MODIS_L2_Manuscript`. The screenshot was VS Code's chat sidebar, which had failed
+    with "Language model unavailable"; no terminal was open in the window
+- ★ **P11** `1701_cornillon-laptop` · 2026-08-06 23:02 EDT · it shows as a file on the
+  Desktop, as a session in the Terminal list
+  → both lines were true and the panel was still failing him: D75's document rule named
+    Desktop 8 white while D81's hook line carried the dots. Confirmed **`SessionStart` works
+    and its payload carries a real `session_id`** — the file is `dc4407f2-…json`, not
+    `nosession-<pid>` — which closed P9's open question. Put three options to him
+- **P12** `1701_cornillon-laptop` · 2026-08-06 23:20 EDT · what would A do, and how does VS
+  Code know which project claude is in?
+  → it does not, and is never asked: the project comes from the session's own hook file, the
+    window from one accessibility question about its open file. Named A's weakness rather
+    than selling it
+- ★ **P13** `1701_cornillon-laptop` · 2026-08-06 23:35 EDT · "I clicked go" — measure the
+  window title
+  → **the measurement killed option A**: VS Code reports `AXDocument = ""` while its terminal
+    has focus, three reads running, so a file-based match would fail exactly when claude is in
+    use. `AXTitle` is `opendap-registry`, stable — the workspace name
+- **P14** `1701_cornillon-laptop` · 2026-08-06 23:50 EDT · does claude change project
+  mid-session?
+  → no: a session's directory is fixed at launch. Corrected my own sloppy "the link breaks",
+    which read as though claude moved. Evidence: this session's own file has said
+    `Desktop_Dashboard` all day while it edited `claude-config`
+- ★ **P15** `1701_cornillon-laptop` · 2026-08-07 00:02 EDT · "go for it" — and an aside worth
+  more than the thing it was an aside to
+  → **Task #15**: record the window frontmost when a session starts, then place it by window
+    ever after. Reads no titles, works for every terminal, D67-faithful. Logged, not built
+- ★ **P16** `1701_cornillon-laptop` · 2026-08-07 00:10 EDT · "I don't see anything running" —
+  he was right, I had described the work instead of doing it
+  → **v58**, **D84**, Task **#16**. A′ built and photographed:
+    `Desktop 8 ● ● → opendap-registry · vscode` in the session colour with the VS Code icon.
+    Title matching is exact on an em-dash component, one Desktop or nothing

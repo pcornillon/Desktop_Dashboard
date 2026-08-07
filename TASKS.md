@@ -482,3 +482,56 @@ and `T5 ● ● opendap-registry` in the sessions list.
 `v56` → **`v57`**.
 
 **Cursor is still out of reach**, and D81's `T#` line remains its ceiling.
+
+
+## Task #15 — Place a session by the window that was frontmost when it started
+
+**Status:** todo
+
+**Peter's idea, 2026-08-07**, offered as an aside and better than what it was an aside to:
+*"would another option be to have claude write in a file which project it is working, which
+terminal it is running from and the Desktop it is in?"*
+
+Two thirds of it already exist — the hook records the project (`cwd`) and the terminal
+(`TERM_PROGRAM`). The Desktop is the hard third, because a shell has no window handle to
+report. **The way round it is his observation restated: at the instant a session starts, its
+window is by definition the frontmost one.** So when a new state file appears, the panel
+snapshots the frontmost window id and remembers it against that session id. Placement is by
+window from then on — `hs.spaces.windowSpaces`, exactly as Terminal and iTerm work — so it
+follows the window if it is moved to another Desktop.
+
+**Why it beats D84's title matching:**
+
+- Works for **every** terminal, including Ghostty and kitty, whose titles carry no repo name.
+- Reads no titles at all, so **D75** is untouched rather than carefully bounded.
+- **D67-faithful**: a session belongs to the Desktop its window is on, dynamically.
+
+**Design notes for whoever builds it:**
+
+- A `hs.pathwatcher` on `M.claudeStateDir` gives the "new session" event; the `SessionStart`
+  hook (**D83**) is what makes that event exist at the right moment.
+- **Guard it:** accept the frontmost window only if its app matches the session's `term`
+  through `M.termApps`. Without that, starting a session and immediately switching away
+  attributes it to whatever was frontmost instead.
+- Persist the mapping in the state file so it survives a Hammerspoon reload; key by session
+  id, and drop it when the session's file goes.
+- D84 stays as the fallback for sessions that were already running when the panel started —
+  there is no start event to catch for those.
+
+
+## Task #16 — Place a session inside an editor, by the window that hosts it (A′)
+
+**Status:** done (2026-08-07)
+
+Built after Peter chose it over two alternatives, and after the alternative he was leaning
+toward was killed by measurement (**D84**): VS Code reports **no open document** while its
+terminal has focus, so matching a session to the editor's open FILE would have failed exactly
+when claude was in use. Its window **title** is the workspace name — `opendap-registry`,
+stable across three reads — so that is what the match uses.
+
+The rule: `term` maps to an app, that app has a window whose title names the session's repo,
+and exactly one Desktop matches. Otherwise it stays in `Sessions elsewhere` rather than
+guessing.
+
+**Verified live and photographed:** `Desktop 8 ● ● → opendap-registry · vscode` in the session
+colour with the VS Code icon, while `T3` listed the same session. `v57` → **`v58`**.

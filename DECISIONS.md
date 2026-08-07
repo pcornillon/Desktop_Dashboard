@@ -1236,3 +1236,50 @@ change tense to stand alone.
   file named after the session id rather than a pid.
 - **Where:** the header of `claude-dashboard-state.sh`, `global/settings.json` in
   `claude-config`, `INSTALL.md` step 2.
+
+### D84. A window title may say WHICH WINDOW hosts a session — never what to call a Desktop
+- **Decision:** a hook-only session (**D81**) is placed on a Desktop when three things hold:
+  its `term` maps to an app through `M.termApps` (`vscode` → `Code`), that app has a window
+  whose **title names the session's own repo**, and **exactly one Desktop** matches. It then
+  draws as a session line like any other, with the terminal named after it
+  (`opendap-registry · vscode`). Ambiguous or no match → it stays in the `Sessions elsewhere`
+  list, unplaced.
+- **The boundary, and it is the whole point of this entry: a title is read to identify a
+  WINDOW, never to name anything.** The session has already stated its directory, from inside
+  itself. All the title does is answer "which of your windows is that?". **D75 stands
+  unchanged** — no title contributes a Desktop's name, and a title that matches nothing
+  produces silence rather than a guess.
+- **Why the match is exact, not a substring:** the title is split on the em dash editors use
+  and a component must **equal** the repo name. Substring matching is what D75 threw out —
+  `opendap` would match a mail subject about OPeNDAP — and nothing here needs it, because a
+  workspace component *is* the repo name.
+- **Why "exactly one Desktop":** two windows of the same workspace on one Desktop is still one
+  answer; two Desktops is an ambiguity, and an ambiguous answer is worse than none. It would
+  put a live session on a Desktop it is not on, which is the failure **D67** was written to
+  end.
+- **What made this necessary, measured 2026-08-07 on Peter's live VS Code window** while a
+  claude session ran in its built-in terminal, three consecutive reads:
+
+  | attribute | value |
+  |---|---|
+  | `AXTitle` | `opendap-registry` |
+  | `AXDocument` | *(empty)* |
+  | focused element | `AXTextField` — `Terminal 1, ✳ Claude Code …` |
+
+  **VS Code reports no document at all while its terminal has focus.** So the obvious design —
+  match the session against the editor's open FILE — fails precisely when claude is being
+  used, which is the only case it exists for. It was designed, put to Peter, and killed by
+  that measurement before a line of it was written. The title, by contrast, was stable across
+  all three reads and is exactly the workspace name.
+- **Clicking such a line switches Desktop and does not raise the window.** The click path for
+  session lines drives Terminal's AppleScript (`focusTerminalWindow`), and the window holding
+  this session is not a Terminal window.
+- **Superseded in intent, if Task #16 works.** Peter's counter-proposal — record the window
+  that was frontmost when the session started, then place it by window ever after — reads no
+  titles, works for terminals whose titles say nothing (Ghostty, kitty), and is D67-faithful
+  rather than D67-adjacent. This stays as the fallback for sessions already running before
+  the panel started.
+- **Verified live and photographed:** `Desktop 8 ● ● → opendap-registry · vscode` with the VS
+  Code icon, in the session colour, while `T3` listed the same session.
+- **Where:** `M.termApps`, `titleNamesRepo`, `placeHookSession`, `hookSessionsSplit`,
+  `screenEntries`, `draw` — `v58`.

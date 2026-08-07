@@ -75,7 +75,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v57 (iTerm sessions get real Desktop lines; measured, not assumed, 2026-08-06)"
+M.version = "v58 (a session inside an editor is placed by the window that hosts it, 2026-08-07)"
 
 -- ============================ CONFIG ============================
 
@@ -180,6 +180,20 @@ M.claudeHookMaxAgeHours = 12     -- ignore state files older than this
 M.showHookSessions = true
 M.hookSessionHeader = "Sessions elsewhere:"
 M.hookSessionTerminals = { ["Apple_Terminal"] = true, ["iTerm.app"] = true }
+
+-- WHICH APP HOSTS A GIVEN `TERM_PROGRAM` (D84). An editor that runs claude in a
+-- built-in terminal has a window on some Desktop, and that window is where the
+-- session is — but the session cannot say so, because a shell has no window
+-- handle to report. This map is one half of the bridge; the other half is the
+-- window's TITLE, which for these editors carries the workspace name.
+--
+-- Keys are what Claude Code's hook records from `$TERM_PROGRAM`; values are the
+-- app name macOS reports (the same spelling `M.docApps` needs).
+M.termApps = {
+  ["vscode"] = "Code",           -- VS Code, and forks that keep the variable
+  ["Cursor"] = "Cursor",
+  ["cursor"] = "Cursor",
+}
 M.claudeDotColors  = {
   working = { red = 1.00, green = 0.78, blue = 0.20, alpha = 1 },   -- yellow: computing
   waiting = { red = 1.00, green = 0.28, blue = 0.26, alpha = 1 },   -- red: wants you
@@ -1816,9 +1830,9 @@ end
 -- Terminal title, not less. What is missing is only the window: no click
 -- target, no Desktop line, and the terminal's own name is shown so it is
 -- obvious why this one is listed apart.
-local function hookSessionEntries(startAt)
+local function hookSessionEntries(startAt, list)
   local entries = {}
-  for i, h in ipairs(hookSessions) do
+  for i, h in ipairs(list or hookSessions) do
     local state = M.showClaudeDot and h.state or nil
     if state == "idle" or state == "gone" then state = nil end
     local dots = withPlaceholders({ claudeDotSpec(state), gitDotSpec(gitStateFor(h.project)) })
@@ -1840,6 +1854,71 @@ local function hookSessionEntries(startAt)
     end
   end
   return entries
+end
+
+-- Does this window title name the repo? (D84)
+--
+-- The test is deliberately narrow: the title is SPLIT on the em dash editors
+-- use, and a component must equal the repo name exactly. Substring matching is
+-- what D75 threw out — "opendap" would match a mail subject about OPeNDAP — and
+-- nothing here needs it, because a workspace component IS the repo name.
+local function titleNamesRepo(title, repo)
+  if not (title and repo) or title == "" or repo == "" then return false end
+  local want = tostring(repo):lower()
+  local t = tostring(title)
+  if t:lower() == want then return true end
+  for part in t:gmatch("[^—]+") do
+    if part:gsub("^%s+", ""):gsub("%s+$", ""):lower() == want then return true end
+  end
+  return false
+end
+
+-- The Desktop a hook session is on, or nil when that cannot be established
+-- WITHOUT GUESSING (D84). Returns spaceID, windowID.
+--
+-- The session has already told us its directory and its terminal; all that is
+-- missing is which window. So: find the windows belonging to that terminal's
+-- app whose title names that repo. **Exactly one Desktop must match.** Two
+-- windows of the same workspace on one Desktop is still one answer; two
+-- Desktops is an ambiguity, and an ambiguous answer here is worse than none —
+-- it would put a live session on a Desktop it is not on, which is the failure
+-- D67 was written to end.
+local function placeHookSession(h)
+  local app = (M.termApps or {})[tostring(h.term or "")]
+  if not app then return nil end
+  local hitSpace, hitWid, n = nil, nil, 0
+  local seen = {}
+  for space, funcs in pairs(lastGather) do
+    for _, w in ipairs(funcs or {}) do
+      if w.app == app and titleNamesRepo(w.title, h.project) then
+        if not seen[space] then seen[space] = true; n = n + 1; hitSpace = space end
+        if not hitWid and w.win then
+          local okid, id = pcall(function() return w.win:id() end)
+          hitWid = okid and id or nil
+        end
+      end
+    end
+  end
+  if n == 1 then return hitSpace, hitWid end
+  return nil
+end
+
+-- The hook sessions attributable to one Desktop, and the ones attributable to
+-- none. Split once per draw rather than per line.
+local function hookSessionsSplit()
+  local bySpace, loose = {}, {}
+  for _, h in ipairs(hookSessions) do
+    local space, wid = placeHookSession(h)
+    if space then
+      bySpace[space] = bySpace[space] or {}
+      local list = bySpace[space]
+      list[#list + 1] = { project = h.project, state = h.state, term = h.term,
+                          summary = h.summary, wid = wid, key = h.sid }
+    else
+      loose[#loose + 1] = h
+    end
+  end
+  return bySpace, loose
 end
 
 local function sessionEntries()
@@ -1929,6 +2008,9 @@ local function screenEntries(screen)
   local spaces = safeSpacesForScreen(screen)
   local active = safeActiveSpace(screen)
   local entries = {}
+  -- D84: sessions with no window of their own, placed by the editor window that
+  -- hosts them. Split once per screen rather than per line.
+  local hookBySpace = hookSessionsSplit()
   for i, sid in ipairs(spaces) do
     local here   = (sid == active)
     local prefix = string.format("%sDesktop %d ",
@@ -1936,24 +2018,52 @@ local function screenEntries(screen)
     local indent = string.rep(" ", uwidth(prefix))
     local icons  = iconsFor(sid)
     local groups = sessionGroupsFor(sid)
+    local hookHere = hookBySpace[sid] or {}
+    local nline = 0                       -- lines drawn for this Desktop so far
 
-    if #groups > 0 then
+    if #groups > 0 or #hookHere > 0 then
       -- Named by the sessions actually running here. A session is placed by its
       -- WINDOW, so this is right even for a Desktop you are not standing on,
       -- and an open document from some other project cannot displace it.
-      for gi, g in ipairs(groups) do
+      for _, g in ipairs(groups) do
+        nline = nline + 1
         local dots = withPlaceholders({ claudeDotSpec(g.state), gitDotSpec(gitStateFor(g.project)) })
         local mid  = dots[1].ch .. " " .. dots[2].ch
-        local head = (gi == 1) and prefix or indent
-        local ic   = (gi == 1) and icons or nil
+        local head = (nline == 1) and prefix or indent
+        local ic   = (nline == 1) and icons or nil
         local suffix = " → " .. displayName(g.project) .. " "
         local text = head .. mid .. suffix
         if ic then text = text .. string.rep(" ", iconTextPad(ic)) end
         entries[#entries + 1] = {
           sid = sid, wids = g.wids, project = g.project,
           dots = dots, icons = ic, prefix = head, suffix = suffix,
-          here = here and gi == 1,           -- the caret belongs to the block
+          here = here and nline == 1,        -- the caret belongs to the block
           nameColor = M.sessionColor,        -- D75: only a live session is coloured
+          text = text,
+        }
+      end
+      -- Sessions running inside an editor on this Desktop (D84). Drawn like the
+      -- lines above because that is what they are — a live session, here — but
+      -- the terminal is named, since "why has this one no window of its own"
+      -- is the first thing anyone asks. No `wids`: clicking switches to the
+      -- Desktop rather than trying to raise a window through Terminal's
+      -- AppleScript, which is not what is holding this session.
+      for _, h in ipairs(hookHere) do
+        nline = nline + 1
+        local state = M.showClaudeDot and h.state or nil
+        if state == "idle" or state == "gone" then state = nil end
+        local dots = withPlaceholders({ claudeDotSpec(state), gitDotSpec(gitStateFor(h.project)) })
+        local mid  = dots[1].ch .. " " .. dots[2].ch
+        local head = (nline == 1) and prefix or indent
+        local ic   = (nline == 1) and icons or nil
+        local suffix = " → " .. displayName(h.project) .. "  · " .. (h.term or "?") .. " "
+        local text = head .. mid .. suffix
+        if ic then text = text .. string.rep(" ", iconTextPad(ic)) end
+        entries[#entries + 1] = {
+          sid = sid, project = h.project,
+          dots = dots, icons = ic, prefix = head, suffix = suffix,
+          here = here and nline == 1,
+          nameColor = M.sessionColor,
           text = text,
         }
       end
@@ -2797,13 +2907,17 @@ draw = function()
     -- In "both" the section needs a header to separate it from the Desktops;
     -- alone it is the whole panel and a header would just be noise.
     addBlock(M.mode == "both" and M.sessionHeader or nil, sessionEntries())
-  elseif #hookSessions > 0 then
-    -- Desktops mode, and there are sessions with no Desktop to appear on (D81).
-    -- They get their own small block rather than nothing: leaving them out is
+  else
+    -- Desktops mode. Any hook session that COULD be placed is already drawn on
+    -- its Desktop above (D84); what is left is the ones that could not be, and
+    -- they get their own small block rather than nothing — leaving them out is
     -- exactly the complaint this exists to answer, and a session you cannot see
     -- is not made less urgent by the view you happen to be in. Costs nothing on
-    -- a machine where every session runs in Terminal, because there are none.
-    addBlock(M.hookSessionHeader or "Sessions elsewhere:", hookSessionEntries(1))
+    -- a machine where every session runs in a terminal the poll can read.
+    local _, loose = hookSessionsSplit()
+    if #loose > 0 then
+      addBlock(M.hookSessionHeader or "Sessions elsewhere:", hookSessionEntries(1, loose))
+    end
   end
   if hasStatus then maxChars = math.max(maxChars, uwidth(M.status)) end
 

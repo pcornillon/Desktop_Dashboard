@@ -662,9 +662,23 @@ Two things to know before you wonder why a line is missing:
 
 ### Sessions elsewhere
 
-A session in a terminal the poll can't read — Ghostty, kitty, Cursor's built-in terminal —
-is drawn from its **hook state file** instead, which Claude Code writes from inside the
-session whatever it is running in. You get the project,
+A session in a terminal the poll can't read — VS Code, Cursor, Ghostty, kitty — is drawn from
+its **hook state file** instead, which Claude Code writes from inside the session whatever it
+is running in.
+
+**If it runs inside an editor, it gets a Desktop line anyway.** The session's file says which
+project it's in and which terminal it's running under; `M.termApps` maps that terminal to an
+app (`vscode` → `Code`); and a window of that app whose *title* names that project is where
+the session lives. So `claude` in VS Code's built-in terminal shows up as
+
+```
+   Desktop 8 ● ● → opendap-registry  · vscode
+```
+
+on the Desktop that window is on, like any other session. If two windows on different
+Desktops could match, it says nothing rather than guessing, and falls back to the list below.
+This is the **only** thing a window title is ever read for — identifying which window holds a
+session whose directory is already known. Nothing on the panel is ever *named* from a title. You get the project,
 the dot, what it's asking, and the name of the terminal it's in:
 
 ```

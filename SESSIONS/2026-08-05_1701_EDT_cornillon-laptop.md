@@ -368,3 +368,89 @@ remove. The next session started on this machine settles it.
 **VS Code:** answered — open the folder, `⌃\`` for the integrated terminal, `claude`. It shows
 as a `· vscode` line under D81 with **no Desktop**, because VS Code is Electron and D82's two
 measurements are exactly what it cannot pass.
+
+## P10 · 2026-08-06 22:55 EDT · am I running claude in opendap-registry?
+
+No — and shown rather than asserted. Two `claude` processes on the machine, `cwd` of each read
+from `lsof`: `Desktop_Dashboard` (this session) and `MODIS_L2_Manuscript`. Neither in
+`opendap-registry`, so the iTerm session from P8 had also exited. The screenshot was **VS
+Code** (running app `Code`, `com.microsoft.VSCode`) showing its **chat sidebar**, which had
+failed with "Language model unavailable" — not a `claude` session, and no terminal open in
+the window at all.
+
+## P11 · 2026-08-06 23:02 EDT · a file on the Desktop, a session in the Terminal list
+
+Peter, with claude now running in VS Code's terminal: Desktop 8 shows `opendap-registry` white
+with no dots, while the `T#` list shows it with dots. *"I assume that the Desktop is sort of
+broken in this regard."*
+
+**Both lines were true and the panel was still failing him**, which is the honest answer. The
+white name is D75's document rule — the evidence was literally
+`app=Code doc=…/opendap-registry/CLAUDE.md`. The dotted line is D81's hook file. The panel
+knew a session was running in that project AND that a VS Code window on Desktop 8 held a file
+from it, and presented them as unrelated.
+
+**Closed P9's open question on the way:** the new session's file is
+`dc4407f2-091b-499f-a41a-c1cd045d7704.json`, `"state":"idle"`, `"term":"vscode"` — named after
+the **session id**, so `SessionStart` does carry one and there is no orphan-file problem.
+
+Three options put to him: link by open document (A), link by window title (A′), or don't link
+and just cross-reference (B).
+
+## P12 · 2026-08-06 23:20 EDT · how does VS Code know which project claude is in?
+
+**It does not, and is never asked** — the premise needed correcting before the choice could
+mean anything. The session's project comes from Claude Code itself, through the hook (`cwd`).
+The window's project comes from one accessibility question put to VS Code: *what file do you
+have open?* — the same question MacDown and Preview get. Option A only lays those two side by
+side. Named A's weakness (it would wobble as he switched tabs) rather than selling it.
+
+## P13 · 2026-08-06 23:35 EDT · "I clicked go"
+
+**The measurement killed option A.** With claude running in its terminal, VS Code reports
+`AXDocument = ""` — three consecutive reads, not a glitch — because the document is the active
+*editor*, and the terminal had focus. So a file-based match would fail exactly when claude is
+in use, the only case it exists for. It also means the white `opendap-registry` line he saw
+was already stale.
+
+`AXTitle` was `opendap-registry`, stable across the same three reads: the workspace name, and
+exactly the session's `cwd` basename. The focused element was `AXTextField —
+"Terminal 1, ✳ Claude Code …"`, which confirms the session is inside that window and is not
+useful for placement (focused window only, active Desktop only).
+
+## P14 · 2026-08-06 23:50 EDT · does claude change project mid-session?
+
+No. A session's directory is fixed at launch. **My own phrasing caused the confusion** — I had
+written that opening a file from another repo would "break the link", which reads as though
+claude moves. It does not; only the panel's *guess about which window* would have failed.
+Corrected explicitly. Evidence to hand: this session's own state file has said
+`Desktop_Dashboard` all day while it edited files in `claude-config`.
+
+## P15 · 2026-08-07 00:02 EDT · "go for it" — plus an aside worth more than the thing itself
+
+Peter chose A′, asking what he was missing. Answered honestly: it is an **inference**, where a
+Terminal session's placement is a fact; it goes silent rather than wrong when ambiguous; and
+it reopens title-reading, which needs a written boundary.
+
+**His aside is a better design and it is now Task #15:** have the session record the Desktop.
+Two thirds already exist (project, terminal); the third is impossible directly — a shell has
+no window handle — but his framing supplies the answer, because **at the instant a session
+starts, its window is by definition frontmost**. Snapshot the frontmost window id then, place
+by window ever after. No titles, every terminal, D67-faithful. Logged, not built.
+
+## P16 · 2026-08-07 00:10 EDT · "I don't see anything running"
+
+He was right. The previous response said "Building it now" and "I'll report back", then ended
+with RESPONSE COMPLETE — which by his own rule means the turn is over, so nothing was going to
+run. **Described the work instead of doing it.** Built it this turn.
+
+**A′ is in (D84, Task #16, `v58`).** `M.termApps` maps `TERM_PROGRAM` to an app;
+`titleNamesRepo` splits a title on the em dash and requires a component to **equal** the repo
+name — no substrings, which is what D75 threw out; `placeHookSession` demands **exactly one**
+Desktop or returns nothing; `hookSessionsSplit` divides the hook sessions into placed and
+loose, and the `Sessions elsewhere:` block now shows only the loose ones.
+
+**Verified live and photographed after a ⌘⌃⌥S:**
+`Desktop 8 ● ● → opendap-registry  · vscode` with the VS Code icon, in the session colour,
+while `T3` listed the same session. The terminal is named on the line because "why has this
+one no window of its own" is the first thing anyone will ask.

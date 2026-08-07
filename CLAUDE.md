@@ -4,7 +4,7 @@
 git state.
 **Produces:** `desktop_dashboard.lua` — a single-file tool loaded from
 `~/.hammerspoon/init.lua` — plus `claude-dashboard-state.sh`, its Claude Code hook.
-**State:** v57, working and in daily use; see `STATUS.md`.
+**State:** v58, working and in daily use; see `STATUS.md`.
 
 Context for AI coding sessions on this repo. Read this before changing
 `desktop_dashboard.lua`. `README.md` is the user-facing install/usage doc; **`DECISIONS.md`
@@ -18,7 +18,7 @@ design ruling lives there as a numbered `D##`.
 | `CLAUDE.md` (this file) | what the project is, the architecture, the layout |
 | `STATUS.md` | where things stand right now, ending in the **active thread** |
 | `LOG.md` | one line per prompt — scan this to see what has been done |
-| `DECISIONS.md` | **D1–D83** — every design ruling and the measurement behind it |
+| `DECISIONS.md` | **D1–D84** — every design ruling and the measurement behind it |
 | `TASKS.md` | the work list: numbered tasks with `Status:` lines |
 
 ## What this project is
@@ -41,7 +41,7 @@ The module returns a table `M` with a `CONFIG` block at the top and `M.start()` 
 ```
 CLAUDE.md               this file — project context, architecture, layout
 STATUS.md               where things stand + active thread
-DECISIONS.md            D1–D83 — every design ruling, with its measurement
+DECISIONS.md            D1–D84 — every design ruling, with its measurement
 TASKS.md                numbered work list with Status: lines
 LOG.md                  append-only one-line-per-prompt index
 README.md               human-facing overview, controls, config, limitations
@@ -144,15 +144,17 @@ recognising a session's own window.
 **Two limits worth knowing before you debug a missing line.** The session poll reads
 **Terminal.app and iTerm2** (D82) — both have an AppleScript dictionary that reports windows
 on Spaces you are not looking at, and a window id `hs.spaces` accepts, which are the two
-things a Desktop line needs. Any other terminal (Ghostty, kitty, Cursor's built-in) gets a
-**`T#` line from its hook state file instead, with no Desktop** (D81); Cursor cannot do
-better, being Electron with no usable dictionary. And a minimized session window reports no
+things a Desktop line needs. Any other terminal gets a **`T#` line from its hook
+state file** (D81) — and, if it runs inside an editor the panel can see, a **Desktop line
+too**: `M.termApps` maps its `TERM_PROGRAM` to an app, and a window of that app whose TITLE
+names the session's repo is where it lives (D84, `vscode` → `Code`). That is the only thing a
+title is ever read for; it never names anything (D75). And a minimized session window reports no
 Space, so it gets no Desktop line either — it is still in the `T#` list, which is keyed by
 window.
 
 ## Where the design rulings live
 
-They are **not** in this file. `DECISIONS.md` holds all 83, with the measurements intact —
+They are **not** in this file. `DECISIONS.md` holds all 84, with the measurements intact —
 the ~40 ms `hs.window.get` cost, the 750-sample dot study, the Menlo 13 glyph widths, the
 observation dates. The ones most likely to be violated by accident:
 
@@ -162,7 +164,7 @@ observation dates. The ones most likely to be violated by accident:
 | label detection | **D67** first — it rewrote what names a Desktop; then **D7**–**D9**, **D13**, four false positives from matching repo names in free text |
 | naming by hand (⌘⌃⌥N) | **D76** — a name belongs to a project, never to a Desktop; it supersedes **D16** |
 | the claude dot | **D67** (a session belongs to the Desktop its WINDOW is on), then **D17**–**D19** — what the terminal title can and cannot tell you |
-| the session poll | **D82** (Terminal + iTerm, and the two measurements a third terminal would have to pass), **D81** (everything else, from its hook file) |
+| the session poll | **D82** (Terminal + iTerm, and the two measurements a third terminal would have to pass), **D81** (everything else, from its hook file), **D84** (placing one that runs inside an editor) |
 | the ⌘⌃⌥g pull | **D30**–**D36** — the only code here that writes to a repository |
 | drawing / icons | **D40**–**D59**, and **D68**–**D71** for the clickable legend |
 
