@@ -1451,3 +1451,36 @@ change tense to stand alone.
 - **Cost:** one `activeSpaceOnScreen` per Desktop, against a full AX window snapshot in the
   same step. Unmeasurable.
 - **Where:** `M.scanAll`'s `readWhenThere`, its restore chain, `M.walkStats` — `v63`.
+
+### D90. A session with no terminal is Claude Code's own machinery, not a line
+- **Decision:** a hook state file whose `term` is `unknown` gets **no `T#` line and no Desktop
+  line**. `M.showUnknownTerminalSessions = true` brings them back for anyone who wants them.
+  The **dots are untouched** — see below.
+- **Why:** the hook records `${TERM_PROGRAM:-unknown}`, and `unknown` does not mean an obscure
+  terminal. It means the process had no terminal in its environment at all, which on this
+  machine is Claude Code's own daemon: spare processes and the sessions it spawns for itself.
+  They run the hooks like anything else, so **D83's `SessionStart` gave every one of them a
+  line**. Peter, within an hour of that shipping: *"the Terminal list now shows 6 terminal
+  sessions but I think that there are only four."*
+- **The measurement, 2026-08-06.** Six state files against four real sessions:
+
+  | state | `term` | repo | age |
+  |---|---|---|---|
+  | working | `Apple_Terminal` | Desktop_Dashboard | 0 m |
+  | idle | **unknown** | three-way_SST_error_analysis_manuscript | 11 m |
+  | done | *(absent, pre-v56)* | Desktop_Dashboard | 3.7 days |
+  | done | `Apple_Terminal` | three-way_SST_error_analysis_manuscript | 53 m |
+  | idle | `vscode` | opendap-registry | 58 m |
+  | waiting | **unknown** | three-way_SST_error_analysis_manuscript | 3 m |
+
+  The running processes settled it: **three `claude` processes had working directories under
+  `/private/tmp/cc-daemon-502/…/spare`**, against four in real repositories.
+- **The dots are deliberately NOT filtered.** `readHookStates` collapses every file to
+  `repo → state` and drives the red dot, and a *spawned* session that is `waiting` is waiting
+  on a permission prompt that belongs to a real session in that repo — the parent is blocked
+  behind it. **Hiding that would hide a genuine "this repo wants you".** So the rule is
+  narrow: no phantom lines, but the state still counts.
+- **The cost:** a terminal that sets no `TERM_PROGRAM` — a bare `xterm`, some tmux
+  configurations — becomes invisible. That is why the flag exists. Nothing on this machine is
+  in that position, and the alternative is a panel that lists Claude Code's plumbing.
+- **Where:** `readHookSessions`, `M.showUnknownTerminalSessions` — `v64`.

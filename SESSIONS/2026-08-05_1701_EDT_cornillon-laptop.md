@@ -626,3 +626,29 @@ Desktop the walk visited."* That is D88's fault described from the outside, and 
 wedged at "Desktop 1 (1/9), steps=0" because I was polling faster than a single 0.6 s dwell.
 `hs -c` round trips are quicker than the thing being measured, and that has now fooled me
 three times in this session — worth remembering the next time a walk looks stuck.
+
+## P22 · 2026-08-07 14:30 EDT · six sessions listed, four real
+
+Peter, within an hour of D83 shipping: *"the Terminal list now shows 6 terminal sessions but I
+think that there are only four."*
+
+**A side effect of D83, and it took one look at the data.** Six state files against four real
+sessions; three of the six had `term=unknown`. The running processes explained it: **three
+`claude` processes had working directories under `/private/tmp/cc-daemon-502/…/spare`** —
+Claude Code's own daemon, its spare processes and the sessions it spawns for itself. They run
+the hooks like anything else, and `SessionStart` had just started giving every session a file
+from the moment it existed. Before D83 they only appeared if they submitted a prompt.
+
+`${TERM_PROGRAM:-unknown}` is the tell: `unknown` does not mean an unusual terminal, it means
+**no terminal at all**. Those now draw no line (**D90**, `v64`), behind
+`M.showUnknownTerminalSessions` for anyone whose terminal genuinely sets nothing.
+
+**The dots were deliberately left alone**, and the reasoning is in the decision: `readHookStates`
+collapses every file to `repo → state` and drives the red dot, and a spawned session that is
+`waiting` is a permission prompt blocking a real session in that repo — the parent is stuck
+behind it. Filtering that would hide a genuine "this repo wants you". The fix is narrow: no
+phantom lines, but the state still counts.
+
+**Verified by photographing the panel:** four `T#` lines — `Desktop_Dashboard`,
+`three-way_SST_error_analysis_manuscript`, `MODIS_L2_Manuscript`, `opendap-registry · vscode`
+— matching the four `claude` processes in real repositories exactly.

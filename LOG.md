@@ -281,3 +281,10 @@ invented index is worse than a short one.
     appear**: two instrumented walks, 9 and 7+ steps, zero retries, zero unread. Protection
     kept anyway, with a console line on any future occurrence. The restore chain's old
     "mid-animation" workaround reads, in hindsight, like D88 described from the outside
+- ★ **P22** `1701_cornillon-laptop` · 2026-08-07 14:30 EDT · six sessions listed, four real
+  → **v64**, **D90**. **D83's `SessionStart` hook gave Claude Code's own daemon a line**: its
+    spare processes and spawned sessions run the hooks too, with no `TERM_PROGRAM`, so they
+    arrived as `term=unknown`. Measured: six state files for four sessions, and three `claude`
+    processes sitting in `/private/tmp/cc-daemon-…/spare`. `unknown` now draws no line, behind
+    `M.showUnknownTerminalSessions`. **The dots are left alone on purpose** — a spawned session
+    that is `waiting` is a real permission prompt blocking a real session in that repo

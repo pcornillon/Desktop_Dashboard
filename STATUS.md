@@ -1,7 +1,7 @@
 # STATUS.md — Desktop Dashboard
 
 Living snapshot of where this project stands. Rewritten, not appended.
-Last updated: **2026-08-07 14:15 EDT** (`cornillon-laptop`).
+Last updated: **2026-08-07 14:45 EDT** (`cornillon-laptop`).
 
 ---
 
@@ -77,7 +77,7 @@ Everything in this section was run or read, not recalled.
 - Working tree clean and level with `origin/main` before the migration began
   (`6442953`).
 
-## Decisions taken (D1–D89)
+## Decisions taken (D1–D90)
 
 D1–D64 were lifted from `CLAUDE.md` on 2026-08-03. **Eleven are new on 2026-08-04.** Written
 here: every `hs.task` carries a timeout (**D65**), a subprocess writes to a file rather than

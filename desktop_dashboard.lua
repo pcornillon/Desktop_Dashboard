@@ -75,7 +75,7 @@
 ============================================================]]--
 
 local M = {}
-M.version = "v63 (the ⌘⌃⌥S walk waits until it is actually on the Desktop it is reading, 2026-08-07)"
+M.version = "v64 (a session with no terminal is Claude Code's own machinery, not a line, 2026-08-07)"
 
 -- ============================ CONFIG ============================
 
@@ -180,6 +180,20 @@ M.claudeHookMaxAgeHours = 12     -- ignore state files older than this
 M.showHookSessions = true
 M.hookSessionHeader = "Sessions elsewhere:"
 M.hookSessionTerminals = { ["Apple_Terminal"] = true, ["iTerm.app"] = true }
+
+-- A SESSION WITH NO TERMINAL IS NOT DRAWN (D90). The hook writes
+-- `${TERM_PROGRAM:-unknown}`, and `unknown` means the process had no terminal
+-- in its environment at all — which is not an obscure terminal, it is Claude
+-- Code's own machinery: the daemon's spare processes and the sessions it spawns
+-- for itself. They run the hooks like anything else, so `SessionStart` (D83)
+-- gave every one of them a line. Measured 2026-08-06: six state files for four
+-- real sessions, three of the six with `term=unknown` and two of those with a
+-- working directory under `/private/tmp/cc-daemon-…/spare`.
+--
+-- The cost of this rule is a terminal that sets no `TERM_PROGRAM` — a bare
+-- `xterm`, some tmux configurations — whose sessions become invisible. Set this
+-- true to see them, and the daemon's along with them.
+M.showUnknownTerminalSessions = false
 
 -- WHICH APP HOSTS A GIVEN `TERM_PROGRAM` (D84). An editor that runs claude in a
 -- built-in terminal has a window on some Desktop, and that window is where the
@@ -1049,9 +1063,11 @@ local function readHookSessions()
     for name in hs.fs.dir(dir) do
       if name:sub(-5) == ".json" then
         local t = hs.json.read(dir .. "/" .. name)
+        local term = (type(t) == "table") and tostring(t.term or "") or ""
+        local known = (term ~= "" and term ~= "unknown") or M.showUnknownTerminalSessions
         if type(t) == "table" and t.repo and t.state
-           and type(t.term) == "string" and t.term ~= ""
-           and not (M.hookSessionTerminals or {})[t.term]
+           and term ~= "" and known
+           and not (M.hookSessionTerminals or {})[term]
            and (not t.at or (now - t.at) <= maxAge) then
           out[#out + 1] = {
             sid     = tostring(t.sid or name:gsub("%.json$", "")),
